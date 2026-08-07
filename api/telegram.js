@@ -1,9 +1,15 @@
+// Telegram nutrition bot — Vercel serverless webhook
+// Flow: incoming message → Claude parses the meal → saved to Supabase → reply
+// with a full breakdown + rolling daily totals. Inline button deletes a log.
+
 import { parseMeal, sumItems } from '../lib/claude.js';
 import {
   saveMeal, deleteMeal, getDayMeals, getGoals, setGoals, dayKey, lastDayKeys,
 } from '../lib/db.js';
 
 const API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
+
+/* ---------------- small helpers ---------------- */
 
 const esc = (s = '') => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const n = (x) => Math.round(x || 0).toLocaleString('he-IL');
@@ -38,9 +44,12 @@ function dayLine(day, goals, label = 'היום') {
   );
 }
 
+/* ---------------- entry point ---------------- */
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(200).send('nutrition bot is up');
 
+  // Reject anything that didn't come from Telegram (secret set at setWebhook time)
   const secret = process.env.TELEGRAM_SECRET_TOKEN;
   if (secret && req.headers['x-telegram-bot-api-secret-token'] !== secret) {
     return res.status(401).send('unauthorized');
@@ -53,8 +62,11 @@ export default async function handler(req, res) {
   } catch (err) {
     console.error('handler error:', err);
   }
+  // Always 200 so Telegram doesn't retry-storm the function
   return res.status(200).send('ok');
 }
+
+/* ---------------- message routing ---------------- */
 
 async function onMessage(msg) {
   const chatId = msg.chat.id;
@@ -100,6 +112,8 @@ async function onCommand(chatId, text) {
   }
 }
 
+/* ---------------- meal logging ---------------- */
+
 async function onMeal(chatId, text) {
   await tg('sendChatAction', { chat_id: chatId, action: 'typing' });
 
@@ -134,6 +148,7 @@ async function onMeal(chatId, text) {
 
   if (parsed.assumptions) head += `\n<i>הנחות: ${esc(parsed.assumptions)}</i>`;
 
+  // Save; if the DB hiccups the user still gets the breakdown
   let saved = null;
   try {
     saved = await saveMeal(chatId, text, parsed, totals);
@@ -149,6 +164,8 @@ async function onMeal(chatId, text) {
     reply_markup: { inline_keyboard: [[{ text: '🗑 מחק רישום', callback_data: `del:${saved.id}` }]] },
   });
 }
+
+/* ---------------- commands ---------------- */
 
 async function cmdToday(chatId) {
   const [goals, rows] = await Promise.all([getGoals(chatId), getDayMeals(chatId, dayKey())]);
@@ -173,7 +190,7 @@ async function cmdToday(chatId) {
 
 async function cmdWeek(chatId) {
   const goals = await getGoals(chatId);
-  const keys = lastDayKeys(7);
+  const keys = lastDayKeys(7); // oldest → newest
   const rows = await getDayMeals(chatId, keys);
 
   const byDay = Object.fromEntries(keys.map((k) => [k, 0]));
@@ -217,6 +234,8 @@ async function cmdGoals(chatId, args) {
       `לעדכון: <code>/goals 1800 140 170 60</code>\n(קלוריות, חלבון, פחמימות, שומן)`
   );
 }
+
+/* ---------------- inline buttons ---------------- */
 
 async function onCallback(cb) {
   const chatId = cb.message?.chat?.id;
