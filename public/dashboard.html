@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>יומן תזונה · דשבורד</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700;900&family=Suez+One&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+
+  :root{
+    --ground:#EDF0EC;
+    --panel:#FFFFFF;
+    --ink:#16211C;
+    --soft:#5A6862;
+    --grid:#DCE2DC;
+    --line:#E4E8E3;
+    --trace:#0F7B5F;
+    --protein:#A62A5E;
+    --carbs:#24608F;
+    --fat:#B0731A;
+    --alert:#B4462A;
+    --display:'Suez One', Georgia, serif;
+    --body:'Heebo', system-ui, -apple-system, sans-serif;
+    --num:'Space Mono', ui-monospace, monospace;
+  }
+
+  html,body{background:var(--ground)}
+  body{
+    font-family:var(--body); color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+
+  .wrap{max-width:1080px; margin:0 auto; padding:20px 16px 72px}
+
+  /* ---------- masthead ---------- */
+  .mast{display:flex; align-items:flex-end; gap:12px; padding-bottom:14px;
+    border-bottom:2px solid var(--ink); margin-bottom:22px; flex-wrap:wrap}
+  .mast h1{font-family:var(--display); font-size:26px; font-weight:400; letter-spacing:-.2px; line-height:1}
+  .mast .sub{font-size:12px; color:var(--soft); font-weight:500; padding-bottom:2px}
+  .mast .out{margin-inline-start:auto; font-size:12px; color:var(--soft);
+    background:none; border:1px solid var(--line); border-radius:8px; padding:7px 12px;
+    font-family:inherit; cursor:pointer; transition:background .15s}
+  .mast .out:hover{background:var(--panel)}
+
+  .eyebrow{font-size:10.5px; font-weight:900; letter-spacing:1.4px; color:var(--soft);
+    text-transform:uppercase; margin-bottom:10px; display:flex; align-items:center; gap:8px}
+  .eyebrow::after{content:''; flex:1; height:1px; background:var(--line)}
+
+  section{margin-bottom:30px}
+
+  /* ---------- login ---------- */
+  .login{max-width:400px; margin:8vh auto; padding:0 16px}
+  .login .card{background:var(--panel); border:1px solid var(--line);
+    border-top:3px solid var(--ink); border-radius:4px; padding:26px 22px}
+  .login h2{font-family:var(--display); font-size:22px; font-weight:400; margin-bottom:8px}
+  .login p{font-size:13.5px; color:var(--soft); line-height:1.6; margin-bottom:20px}
+  .login p code{font-family:var(--num); background:var(--ground); padding:1px 5px; border-radius:3px;
+    font-size:12.5px}
+  .codebox{width:100%; border:1px solid var(--grid); border-radius:8px; background:var(--ground);
+    padding:14px; font-family:var(--num); font-size:26px; font-weight:700; text-align:center;
+    letter-spacing:6px; color:var(--ink); direction:ltr}
+  .codebox:focus{outline:2px solid var(--trace); outline-offset:1px; background:var(--panel)}
+  .btn{width:100%; margin-top:12px; padding:13px; border:none; border-radius:8px;
+    background:var(--ink); color:var(--ground); font-family:inherit; font-size:15px;
+    font-weight:700; cursor:pointer; transition:opacity .15s}
+  .btn:hover{opacity:.9}
+  .btn:disabled{opacity:.4; cursor:default}
+  .msg{margin-top:12px; font-size:13px; line-height:1.5; padding:10px 12px; border-radius:8px}
+  .msg.err{background:#FAEDE9; border:1px solid #EFCDC2; color:#8A3A1F}
+  .msg.ok{background:#E9F2ED; border:1px solid #C6DCD0; color:#1B5C43}
+
+  /* ---------- range switch ---------- */
+  .range{display:flex; gap:6px; margin-bottom:14px}
+  .range button{padding:8px 16px; border:1px solid var(--line); background:var(--panel);
+    border-radius:20px; font-family:inherit; font-size:13px; font-weight:700; color:var(--soft);
+    cursor:pointer; transition:.15s}
+  .range button.on{background:var(--ink); color:var(--ground); border-color:var(--ink)}
+
+  /* ---------- SIGNATURE: the recording strip ---------- */
+  .recorder{background:var(--panel); border:1px solid var(--line); border-radius:4px;
+    padding:18px 14px 10px; position:relative}
+  .recorder .rhead{display:flex; align-items:baseline; gap:10px; margin-bottom:2px;
+    padding:0 4px 12px; flex-wrap:wrap}
+  .recorder .rhead .big{font-family:var(--num); font-size:34px; font-weight:700; line-height:.9;
+    color:var(--trace)}
+  .recorder .rhead .unit{font-size:12px; font-weight:700; color:var(--soft)}
+  .recorder .rhead .meta{margin-inline-start:auto; font-size:12px; color:var(--soft); text-align:left;
+    line-height:1.5}
+  .recorder .rhead .meta b{font-family:var(--num); color:var(--ink)}
+  .chartbox{direction:ltr; width:100%; overflow:hidden}
+  svg{display:block; width:100%; height:auto; touch-action:manipulation}
+  .tickline{cursor:pointer}
+  .tickline:hover rect.hit{fill:rgba(15,123,95,.07)}
+
+  .legend{display:flex; gap:14px; flex-wrap:wrap; padding:12px 4px 4px; font-size:11.5px;
+    color:var(--soft); border-top:1px solid var(--line); margin-top:8px}
+  .legend span{display:flex; align-items:center; gap:5px}
+  .legend i{width:14px; height:3px; border-radius:2px; display:block}
+  .legend i.dash{background:repeating-linear-gradient(90deg,var(--soft) 0 3px,transparent 3px 6px)}
+
+  /* ---------- macro mini traces ---------- */
+  .minis{display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:12px}
+  .mini{background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:12px 10px 6px}
+  .mini .mh{display:flex; align-items:baseline; gap:6px; padding:0 2px 6px}
+  .mini .mh .nm{font-size:12px; font-weight:700}
+  .mini .mh .av{margin-inline-start:auto; font-family:var(--num); font-size:13px; font-weight:700}
+  .mini .mh .gl{font-family:var(--num); font-size:11px; color:var(--soft)}
+
+  /* ---------- goal cards ---------- */
+  .goals{display:grid; grid-template-columns:repeat(4,1fr); gap:12px}
+  .gcard{background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:14px 14px 12px}
+  .gcard .lbl{font-size:11px; font-weight:900; letter-spacing:.6px; color:var(--soft); margin-bottom:8px}
+  .gcard .val{font-family:var(--num); font-size:23px; font-weight:700; line-height:1}
+  .gcard .of{font-family:var(--num); font-size:12px; color:var(--soft); margin-top:3px}
+  .gcard .track{height:5px; background:var(--grid); border-radius:20px; margin-top:10px; overflow:hidden}
+  .gcard .fill{height:100%; border-radius:20px; transition:width .5s cubic-bezier(.4,0,.2,1)}
+
+  /* ---------- day detail ---------- */
+  .daypanel{background:var(--panel); border:1px solid var(--line); border-radius:4px; overflow:hidden}
+  .daypanel .dh{display:flex; align-items:center; gap:10px; padding:14px 16px;
+    border-bottom:1px solid var(--line); flex-wrap:wrap}
+  .daypanel .dh h3{font-family:var(--display); font-size:17px; font-weight:400}
+  .daypanel .dh .tot{margin-inline-start:auto; font-family:var(--num); font-size:15px; font-weight:700}
+  .daypanel .dh .nav{display:flex; gap:6px}
+  .daypanel .dh .nav button{width:30px; height:30px; border:1px solid var(--line); background:var(--ground);
+    border-radius:7px; cursor:pointer; font-size:14px; color:var(--ink); font-family:inherit}
+  .daypanel .dh .nav button:hover{background:var(--panel)}
+  .daypanel .dh .nav button:disabled{opacity:.35; cursor:default}
+
+  .meal{padding:14px 16px; border-bottom:1px solid var(--line)}
+  .meal:last-child{border-bottom:none}
+  .meal .mtop{display:flex; align-items:baseline; gap:9px; flex-wrap:wrap}
+  .meal .time{font-family:var(--num); font-size:11.5px; color:var(--soft)}
+  .meal .txt{font-weight:700; font-size:14.5px; flex:1; min-width:120px}
+  .meal .kc{font-family:var(--num); font-size:14.5px; font-weight:700}
+  .chip{font-size:9.5px; font-weight:900; letter-spacing:.5px; padding:2px 7px; border-radius:20px}
+  .chip.high{background:#E4F0E9; color:#1B5C43}
+  .chip.medium{background:#FBF2DF; color:#7E621A}
+  .chip.low{background:#FAE9E4; color:#8A3A2B}
+  .chip.photo{background:#E7EEF4; color:#24608F}
+  .items{margin-top:9px; padding-inline-start:2px}
+  .items div{display:flex; gap:8px; font-size:12.5px; color:var(--soft); padding:2.5px 0}
+  .items div span:last-child{margin-inline-start:auto; font-family:var(--num)}
+  .macline{margin-top:8px; font-family:var(--num); font-size:11.5px; color:var(--soft)}
+  .acts{display:flex; gap:7px; margin-top:11px}
+  .acts button{border:1px solid var(--line); background:var(--ground); border-radius:7px;
+    padding:6px 12px; font-family:inherit; font-size:12px; font-weight:700; cursor:pointer;
+    color:var(--ink); transition:.15s}
+  .acts button:hover{background:var(--panel)}
+  .acts button.dz{color:var(--alert)}
+  .editrow{display:flex; gap:7px; margin-top:9px}
+  .editrow input{flex:1; border:1px solid var(--grid); border-radius:7px; padding:9px 11px;
+    font-family:inherit; font-size:13.5px; background:var(--ground); color:var(--ink)}
+  .editrow input:focus{outline:2px solid var(--trace); outline-offset:1px; background:var(--panel)}
+
+  .empty{padding:30px 18px; text-align:center; color:var(--soft); font-size:13.5px; line-height:1.7}
+
+  /* ---------- habits ---------- */
+  .hgrid{display:grid; grid-template-columns:1.3fr 1fr; gap:14px}
+  .hpanel{background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:16px}
+  .hpanel h4{font-size:13px; font-weight:900; margin-bottom:14px}
+  .hrow{display:flex; align-items:center; gap:9px; padding:6px 0; font-size:13px}
+  .hrow .rank{font-family:var(--num); font-size:10.5px; color:var(--soft); width:16px; flex:none}
+  .hrow .nm{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .hrow .cnt{font-family:var(--num); font-size:11.5px; color:var(--soft); flex:none}
+  .hbar{height:4px; background:var(--grid); border-radius:20px; overflow:hidden; width:64px; flex:none}
+  .hbar i{display:block; height:100%; background:var(--trace); border-radius:20px}
+
+  .dowlist div{display:flex; align-items:center; gap:9px; padding:5px 0; font-size:13px}
+  .dowlist .dn{width:18px; font-weight:700; flex:none}
+  .dowlist .dbar{flex:1; height:16px; background:var(--grid); border-radius:3px; overflow:hidden}
+  .dowlist .dbar i{display:block; height:100%; border-radius:3px}
+  .dowlist .dv{font-family:var(--num); font-size:11.5px; color:var(--soft); flex:none; width:44px;
+    text-align:left}
+
+  /* ---------- goals editor ---------- */
+  .gedit{background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:16px}
+  .gform{display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:10px}
+  .gform label{display:block}
+  .gform span{display:block; font-size:10.5px; font-weight:900; letter-spacing:.5px; color:var(--soft);
+    margin-bottom:5px}
+  .gform input{width:100%; border:1px solid var(--grid); border-radius:7px; padding:9px;
+    font-family:var(--num); font-size:16px; font-weight:700; text-align:center;
+    background:var(--ground); color:var(--ink)}
+  .gform input:focus{outline:2px solid var(--trace); outline-offset:1px; background:var(--panel)}
+  .gedit .btn{width:auto; padding:10px 20px; margin-top:0; font-size:13.5px}
+
+  .loading{padding:60px 20px; text-align:center; color:var(--soft); font-size:13.5px}
+  .spinner{width:22px; height:22px; border:2px solid var(--grid); border-top-color:var(--trace);
+    border-radius:50%; margin:0 auto 14px; animation:sp .7s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+
+  .hidden{display:none !important}
+
+  @media (max-width:720px){
+    .minis{grid-template-columns:1fr}
+    .goals{grid-template-columns:repeat(2,1fr)}
+    .hgrid{grid-template-columns:1fr}
+    .gform{grid-template-columns:repeat(2,1fr)}
+    .mast h1{font-size:22px}
+    .recorder .rhead .big{font-size:28px}
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none !important; transition:none !important}
+  }
+
+  :focus-visible{outline:2px solid var(--trace); outline-offset:2px}
+</style>
+</head>
+<body>
+
+<!-- ============ LOGIN ============ -->
+<div class="login" id="login">
+  <div class="card">
+    <h2>כניסה לדשבורד</h2>
+    <p>
+      שלח <code>/dashboard</code> לבוט בטלגרם, והזן כאן את הקוד בן 6 הספרות שקיבלת.
+    </p>
+    <input class="codebox" id="code" inputmode="numeric" maxlength="6" placeholder="——————"
+           autocomplete="one-time-code" aria-label="קוד כניסה">
+    <button class="btn" id="loginBtn">היכנס</button>
+    <div id="loginMsg"></div>
+  </div>
+</div>
+
+<!-- ============ APP ============ -->
+<div class="wrap hidden" id="app">
+
+  <header class="mast">
+    <h1>יומן תזונה</h1>
+    <span class="sub" id="subtitle">טוען…</span>
+    <button class="out" id="logout">יציאה</button>
+  </header>
+
+  <div id="content">
+    <div class="loading"><div class="spinner"></div>מביא את הנתונים…</div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   State + API
+   ============================================================ */
+const TG = window.Telegram?.WebApp;
+const LS_KEY = 'nutri_dash_token';
+
+let state = { days: 30, data: null, selectedDay: null, editing: null };
+
+function authHeaders() {
+  const h = { 'content-type': 'application/json' };
+  if (TG?.initData) h['x-telegram-init-data'] = TG.initData;
+  const t = localStorage.getItem(LS_KEY);
+  if (t) h['x-dash-token'] = t;
+  return h;
+}
+
+async function api(action, body, query = '') {
+  const res = await fetch(`/api/dash?action=${action}${query}`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(body || {}),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(data.error || 'שגיאה'), { status: res.status });
+  return data;
+}
+
+/* ============================================================
+   Formatting
+   ============================================================ */
+const n0 = (x) => Math.round(x || 0).toLocaleString('he-IL');
+const n1 = (x) => (Math.round((x || 0) * 10) / 10).toLocaleString('he-IL');
+const DOW = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'];
+
+function dayLabel(key) {
+  const d = new Date(key + 'T12:00:00Z');
+  return d.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' });
+}
+function dayShort(key) {
+  const d = new Date(key + 'T12:00:00Z');
+  return `${d.getUTCDate()}/${d.getUTCMonth() + 1}`;
+}
+
+/* ============================================================
+   Login
+   ============================================================ */
+const $ = (id) => document.getElementById(id);
+
+function showMsg(el, text, kind) {
+  el.innerHTML = `<div class="msg ${kind}">${text}</div>`;
+}
+
+$('loginBtn').addEventListener('click', doLogin);
+$('code').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
+
+async function doLogin() {
+  const code = $('code').value.replace(/\D/g, '');
+  const msg = $('loginMsg');
+  if (code.length !== 6) return showMsg(msg, 'הזן קוד בן 6 ספרות.', 'err');
+
+  $('loginBtn').disabled = true;
+  showMsg(msg, 'בודק…', 'ok');
+  try {
+    const res = await fetch('/api/dash?action=redeem_code', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'קוד שגוי');
+    localStorage.setItem(LS_KEY, data.token);
+    boot();
+  } catch (err) {
+    showMsg(msg, err.message, 'err');
+    $('loginBtn').disabled = false;
+  }
+}
+
+$('logout').addEventListener('click', () => {
+  localStorage.removeItem(LS_KEY);
+  location.hash = '';
+  location.reload();
+});
+
+/* ============================================================
+   Boot: Mini App → hash token → stored token → login screen
+   ============================================================ */
+async function boot() {
+  if (TG) { try { TG.ready(); TG.expand(); } catch {} }
+
+  // One-tap link from the bot: #t=<token>
+  const hash = new URLSearchParams(location.hash.slice(1));
+  const hashToken = hash.get('t');
+  if (hashToken) {
+    try {
+      const res = await fetch('/api/dash?action=activate', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token: hashToken }),
+      });
+      if (res.ok) localStorage.setItem(LS_KEY, hashToken);
+    } catch {}
+    history.replaceState(null, '', location.pathname);
+  }
+
+  const hasAuth = TG?.initData || localStorage.getItem(LS_KEY);
+  if (!hasAuth) return showLogin();
+
+  $('login').classList.add('hidden');
+  $('app').classList.remove('hidden');
+  load();
+}
+
+function showLogin() {
+  $('login').classList.remove('hidden');
+  $('app').classList.add('hidden');
+  $('loginBtn').disabled = false;
+}
+
+async function load() {
+  try {
+    state.data = await api('data', {}, `&days=${state.days}`);
+    if (!state.selectedDay || !state.data.trend.some((t) => t.day === state.selectedDay)) {
+      state.selectedDay = state.data.trend[state.data.trend.length - 1]?.day || null;
+    }
+    render();
+  } catch (err) {
+    if (err.status === 401) {
+      localStorage.removeItem(LS_KEY);
+      return showLogin();
+    }
+    $('content').innerHTML =
+      `<div class="empty">לא הצלחתי לטעון את הנתונים.<br>${err.message}</div>`;
+  }
+}
+
+/* ============================================================
+   SIGNATURE: the recording strip
+   A continuous trace of daily calories over the goal baseline,
+   with clickable day ticks that scrub the detail panel below.
+   ============================================================ */
+function recorderSVG(trend, goal, selected) {
+  const W = 900, H = 210;
+  const padL = 8, padR = 8, padT = 16, padB = 26;
+  const iw = W - padL - padR, ih = H - padT - padB;
+
+  const vals = trend.map((t) => t.calories).filter((v) => v > 0);
+  const maxVal = vals.length ? Math.max(...vals) : goal;
+  // Scale to the data, with just enough headroom to keep the goal baseline in view.
+  const peak = Math.max(maxVal, goal) * 1.12;
+  const x = (i) => padL + (trend.length === 1 ? iw / 2 : (i / (trend.length - 1)) * iw);
+  const y = (v) => padT + ih - (v / peak) * ih;
+
+  const gy = y(goal);
+
+  // Trace path — only across days that have data, broken by gaps
+  let segs = [], cur = [];
+  trend.forEach((t, i) => {
+    if (t.calories > 0) cur.push([x(i), y(t.calories)]);
+    else { if (cur.length) segs.push(cur); cur = []; }
+  });
+  if (cur.length) segs.push(cur);
+
+  const lineOf = (s) => s.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+  const areaOf = (s) => {
+    if (s.length < 2) return '';
+    const base = padT + ih;
+    return `${lineOf(s)} L${s[s.length - 1][0].toFixed(1)},${base} L${s[0][0].toFixed(1)},${base} Z`;
+  };
+
+  // Horizontal guides
+  const guides = [0.5, 1].map((f) => {
+    const gv = peak * f;
+    return `<line x1="${padL}" x2="${W - padR}" y1="${y(gv).toFixed(1)}" y2="${y(gv).toFixed(1)}"
+      stroke="var(--grid)" stroke-width="1"/>`;
+  }).join('');
+
+  // Day ticks: clickable columns
+  const step = iw / Math.max(1, trend.length - 1);
+  const ticks = trend.map((t, i) => {
+    const cx = x(i);
+    const isSel = t.day === selected;
+    const has = t.calories > 0;
+    const over = has && t.calories > goal;
+    const w = Math.max(6, Math.min(26, step));
+    return `<g class="tickline" data-day="${t.day}" role="button" tabindex="0"
+              aria-label="${dayShort(t.day)}: ${n0(t.calories)} קלוריות">
+      <rect class="hit" x="${(cx - w / 2).toFixed(1)}" y="${padT}" width="${w.toFixed(1)}" height="${ih}"
+        fill="${isSel ? 'rgba(15,123,95,.10)' : 'transparent'}"/>
+      ${has ? `<circle cx="${cx.toFixed(1)}" cy="${y(t.calories).toFixed(1)}" r="${isSel ? 4.5 : 2.6}"
+        fill="${over ? 'var(--alert)' : 'var(--trace)'}"
+        stroke="var(--panel)" stroke-width="${isSel ? 2 : 1}"/>` : ''}
+      ${isSel ? `<line x1="${cx.toFixed(1)}" x2="${cx.toFixed(1)}" y1="${padT}" y2="${padT + ih}"
+        stroke="var(--trace)" stroke-width="1" stroke-dasharray="2 3" opacity=".55"/>` : ''}
+    </g>`;
+  }).join('');
+
+  // Sparse date labels
+  const every = Math.ceil(trend.length / 7);
+  const labels = trend.map((t, i) => {
+    if (i % every !== 0 && i !== trend.length - 1) return '';
+    return `<text x="${x(i).toFixed(1)}" y="${H - 8}" text-anchor="middle"
+      font-family="Space Mono, monospace" font-size="10" fill="var(--soft)">${dayShort(t.day)}</text>`;
+  }).join('');
+
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
+    aria-label="מגמת קלוריות יומית">
+    <defs>
+      <linearGradient id="tg" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="var(--trace)" stop-opacity=".18"/>
+        <stop offset="100%" stop-color="var(--trace)" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    ${guides}
+    ${segs.map((s) => `<path d="${areaOf(s)}" fill="url(#tg)"/>`).join('')}
+    <line x1="${padL}" x2="${W - padR}" y1="${gy.toFixed(1)}" y2="${gy.toFixed(1)}"
+      stroke="var(--soft)" stroke-width="1.4" stroke-dasharray="5 4" opacity=".8"/>
+    ${segs.map((s) => `<path d="${lineOf(s)}" fill="none" stroke="var(--trace)"
+      stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`).join('')}
+    ${ticks}
+    ${labels}
+  </svg>`;
+}
+
+/* Small macro trace */
+function miniSVG(trend, field, color, goal) {
+  const W = 300, H = 54, pad = 4;
+  const vals = trend.map((t) => t[field]).filter((v) => v > 0);
+  const maxVal = vals.length ? Math.max(...vals) : goal;
+  const peak = Math.max(maxVal, goal) * 1.15;
+  const x = (i) => pad + (trend.length === 1 ? (W - 2 * pad) / 2 : (i / (trend.length - 1)) * (W - 2 * pad));
+  const y = (v) => H - pad - (v / peak) * (H - 2 * pad);
+
+  let segs = [], cur = [];
+  trend.forEach((t, i) => {
+    if (t[field] > 0) cur.push([x(i), y(t[field])]);
+    else { if (cur.length) segs.push(cur); cur = []; }
+  });
+  if (cur.length) segs.push(cur);
+
+  const gy = y(goal);
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+    <line x1="${pad}" x2="${W - pad}" y1="${gy.toFixed(1)}" y2="${gy.toFixed(1)}"
+      stroke="var(--grid)" stroke-width="1.2" stroke-dasharray="4 3"/>
+    ${segs.map((s) => `<path d="${s.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ')}"
+      fill="none" stroke="${color}" stroke-width="1.8" stroke-linejoin="round"/>`).join('')}
+  </svg>`;
+}
+
+/* ============================================================
+   Render
+   ============================================================ */
+function render() {
+  const d = state.data;
+  const g = d.goals;
+  const s = d.stats;
+
+  $('subtitle').textContent =
+    `${s.loggedDays} מתוך ${s.totalDays} ימים עם רישום`;
+
+  const sel = state.selectedDay;
+  const selTrend = d.trend.find((t) => t.day === sel) || { calories: 0, protein: 0, carbs: 0, fat: 0 };
+  const selMeals = d.meals.filter((m) => m.day === sel).sort((a, b) => new Date(b.ts) - new Date(a.ts));
+  const idx = d.trend.findIndex((t) => t.day === sel);
+
+  const macroCard = (lbl, val, goal, color) => {
+    const pct = goal > 0 ? Math.min(100, (val / goal) * 100) : 0;
+    return `<div class="gcard">
+      <div class="lbl">${lbl}</div>
+      <div class="val" style="color:${color}">${n1(val)}</div>
+      <div class="of">מתוך ${n0(goal)}</div>
+      <div class="track"><div class="fill" style="width:${pct}%;background:${color}"></div></div>
+    </div>`;
+  };
+
+  const maxItem = Math.max(1, ...d.topItems.map((i) => i.count));
+  const maxDow = Math.max(1, ...d.weekday.map((w) => w.avg));
+
+  $('content').innerHTML = `
+
+  <!-- TRENDS (priority 1) -->
+  <section>
+    <div class="eyebrow">מגמה לאורך זמן</div>
+    <div class="range">
+      ${[7, 30, 90].map((r) => `
+        <button data-range="${r}" class="${state.days === r ? 'on' : ''}">${r} ימים</button>
+      `).join('')}
+    </div>
+
+    <div class="recorder">
+      <div class="rhead">
+        <span class="big">${n0(s.avgCalories)}</span>
+        <span class="unit">קק"ל · ממוצע יומי</span>
+        <span class="meta">
+          יעד <b>${n0(g.calories)}</b><br>
+          ${s.overDays > 0 ? `<b>${s.overDays}</b> ימים מעל היעד` : 'אין ימים מעל היעד'}
+        </span>
+      </div>
+      <div class="chartbox" id="recorder">
+        ${recorderSVG(d.trend, g.calories, sel)}
+      </div>
+      <div class="legend">
+        <span><i style="background:var(--trace)"></i> קלוריות בפועל</span>
+        <span><i class="dash"></i> יעד יומי</span>
+        <span><i style="background:var(--alert)"></i> חריגה</span>
+        <span style="margin-inline-start:auto">לחץ על יום כדי לראות אותו למטה ↓</span>
+      </div>
+    </div>
+
+    <div class="minis">
+      <div class="mini">
+        <div class="mh"><span class="nm">חלבון</span>
+          <span class="av" style="color:var(--protein)">${n0(s.avgProtein)}</span>
+          <span class="gl">/ ${g.protein} ג</span></div>
+        ${miniSVG(d.trend, 'protein', 'var(--protein)', g.protein)}
+      </div>
+      <div class="mini">
+        <div class="mh"><span class="nm">פחמימות</span>
+          <span class="av" style="color:var(--carbs)">${n0(s.avgCarbs)}</span>
+          <span class="gl">/ ${g.carbs} ג</span></div>
+        ${miniSVG(d.trend, 'carbs', 'var(--carbs)', g.carbs)}
+      </div>
+      <div class="mini">
+        <div class="mh"><span class="nm">שומן</span>
+          <span class="av" style="color:var(--fat)">${n0(s.avgFat)}</span>
+          <span class="gl">/ ${g.fat} ג</span></div>
+        ${miniSVG(d.trend, 'fat', 'var(--fat)', g.fat)}
+      </div>
+    </div>
+  </section>
+
+  <!-- DAY DETAIL (priority 2) -->
+  <section>
+    <div class="eyebrow">פילוח יומי</div>
+    <div class="daypanel">
+      <div class="dh">
+        <div class="nav">
+          <button id="prevDay" ${idx <= 0 ? 'disabled' : ''} aria-label="יום קודם">›</button>
+          <button id="nextDay" ${idx >= d.trend.length - 1 ? 'disabled' : ''} aria-label="יום הבא">‹</button>
+        </div>
+        <h3>${sel ? dayLabel(sel) : '—'}</h3>
+        <span class="tot">${n0(selTrend.calories)} / ${n0(g.calories)} קק"ל</span>
+      </div>
+
+      ${selMeals.length === 0
+        ? `<div class="empty">לא נרשם כלום ביום הזה.<br>שלח ארוחה לבוט בטלגרם והיא תופיע כאן.</div>`
+        : selMeals.map((m) => mealHTML(m)).join('')}
+
+      ${selMeals.length > 0 ? `
+        <div class="meal" style="background:var(--ground)">
+          <div class="mtop">
+            <span class="txt">סה"כ ליום</span>
+            <span class="kc">${n0(selTrend.calories)} קק"ל</span>
+          </div>
+          <div class="macline">
+            חלבון ${n1(selTrend.protein)} ג · פחמימות ${n1(selTrend.carbs)} ג · שומן ${n1(selTrend.fat)} ג
+          </div>
+        </div>` : ''}
+    </div>
+  </section>
+
+  <!-- HABITS (priority 3) -->
+  <section>
+    <div class="eyebrow">הרגלים ותבניות</div>
+    <div class="hgrid">
+      <div class="hpanel">
+        <h4>מה אני אוכל הכי הרבה</h4>
+        ${d.topItems.length === 0
+          ? `<div style="font-size:13px;color:var(--soft)">עוד אין מספיק נתונים.</div>`
+          : d.topItems.map((it, i) => `
+            <div class="hrow">
+              <span class="rank">${i + 1}</span>
+              <span class="nm">${escapeHTML(it.name)}</span>
+              <span class="hbar"><i style="width:${(it.count / maxItem) * 100}%"></i></span>
+              <span class="cnt">${it.count}× · ${n0(it.avgCalories)}</span>
+            </div>`).join('')}
+      </div>
+
+      <div class="hpanel">
+        <h4>ממוצע לפי יום בשבוע</h4>
+        <div class="dowlist">
+          ${d.weekday.map((w) => `
+            <div>
+              <span class="dn">${DOW[w.dow]}</span>
+              <span class="dbar"><i style="width:${(w.avg / maxDow) * 100}%;
+                background:${w.avg > g.calories ? 'var(--alert)' : 'var(--trace)'}"></i></span>
+              <span class="dv">${w.avg ? n0(w.avg) : '—'}</span>
+            </div>`).join('')}
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- GOALS (priority 4) -->
+  <section>
+    <div class="eyebrow">היום מול היעדים</div>
+    <div class="goals">
+      ${macroCard('קלוריות', d.today.calories, g.calories, 'var(--trace)')}
+      ${macroCard('חלבון (ג)', d.today.protein, g.protein, 'var(--protein)')}
+      ${macroCard('פחמימות (ג)', d.today.carbs, g.carbs, 'var(--carbs)')}
+      ${macroCard('שומן (ג)', d.today.fat, g.fat, 'var(--fat)')}
+    </div>
+
+    <div class="gedit" style="margin-top:14px">
+      <div class="gform">
+        <label><span>קלוריות</span><input type="number" id="gCal" value="${g.calories}" min="0"></label>
+        <label><span>חלבון (ג)</span><input type="number" id="gPro" value="${g.protein}" min="0"></label>
+        <label><span>פחמימות (ג)</span><input type="number" id="gCar" value="${g.carbs}" min="0"></label>
+        <label><span>שומן (ג)</span><input type="number" id="gFat" value="${g.fat}" min="0"></label>
+      </div>
+      <button class="btn" id="saveGoals">שמור יעדים</button>
+      <span id="goalMsg" style="font-size:12.5px;color:var(--soft);margin-inline-start:10px"></span>
+    </div>
+  </section>
+  `;
+
+  wire();
+}
+
+function mealHTML(m) {
+  const t = new Date(m.ts).toLocaleTimeString('he-IL', {
+    hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jerusalem',
+  });
+  const conf = { high: 'דיוק גבוה', medium: 'הערכה', low: 'הערכה גסה' }[m.confidence] || 'הערכה';
+  const editing = state.editing === m.id;
+
+  return `<div class="meal" data-meal="${m.id}">
+    <div class="mtop">
+      <span class="time">${t}</span>
+      <span class="txt">${escapeHTML(m.text)}</span>
+      <span class="chip ${m.source === 'photo' ? 'photo' : m.confidence}">
+        ${m.source === 'photo' ? 'תמונה' : conf}</span>
+      <span class="kc">${n0(m.totals?.calories)}</span>
+    </div>
+
+    <div class="items">
+      ${(m.items || []).map((it) => `
+        <div>
+          <span>${escapeHTML(it.name)}${it.portion ? ` · ${escapeHTML(it.portion)}` : ''}</span>
+          <span>${n0(it.calories)}</span>
+        </div>`).join('')}
+    </div>
+
+    <div class="macline">
+      חלבון ${n1(m.totals?.protein)} · פחמימות ${n1(m.totals?.carbs)} · שומן ${n1(m.totals?.fat)}
+    </div>
+
+    ${editing ? `
+      <div class="editrow">
+        <input id="editInput-${m.id}" placeholder='מה לתקן? למשל: "רק חצי" · "150 גרם" · "בלי הדבש"'>
+        <button class="acts" style="border:1px solid var(--line);background:var(--ink);color:var(--ground);
+          border-radius:7px;padding:0 14px;font-family:inherit;font-weight:700;font-size:12.5px;cursor:pointer"
+          data-apply="${m.id}">החל</button>
+      </div>
+      <div class="acts"><button data-cancel="${m.id}">בטל</button></div>
+    ` : `
+      <div class="acts">
+        <button data-edit="${m.id}">ערוך</button>
+        <button class="dz" data-del="${m.id}">מחק</button>
+      </div>
+    `}
+  </div>`;
+}
+
+function escapeHTML(s = '') {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/* ============================================================
+   Interactions
+   ============================================================ */
+function wire() {
+  // Range switch
+  document.querySelectorAll('[data-range]').forEach((b) => {
+    b.addEventListener('click', () => {
+      state.days = Number(b.dataset.range);
+      state.editing = null;
+      $('content').innerHTML = `<div class="loading"><div class="spinner"></div>מביא את הנתונים…</div>`;
+      load();
+    });
+  });
+
+  // Scrub the recording strip
+  const pick = (day) => { state.selectedDay = day; state.editing = null; render(); };
+  document.querySelectorAll('.tickline').forEach((g) => {
+    g.addEventListener('click', () => pick(g.dataset.day));
+    g.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(g.dataset.day); }
+    });
+  });
+
+  // Day nav (RTL: › goes back in time)
+  const trend = state.data.trend;
+  const i = trend.findIndex((t) => t.day === state.selectedDay);
+  $('prevDay')?.addEventListener('click', () => { if (i > 0) pick(trend[i - 1].day); });
+  $('nextDay')?.addEventListener('click', () => { if (i < trend.length - 1) pick(trend[i + 1].day); });
+
+  // Meal actions
+  document.querySelectorAll('[data-edit]').forEach((b) =>
+    b.addEventListener('click', () => {
+      state.editing = b.dataset.edit;
+      render();
+      $(`editInput-${state.editing}`)?.focus();
+    }));
+
+  document.querySelectorAll('[data-cancel]').forEach((b) =>
+    b.addEventListener('click', () => { state.editing = null; render(); }));
+
+  document.querySelectorAll('[data-apply]').forEach((b) =>
+    b.addEventListener('click', () => applyEdit(b.dataset.apply)));
+
+  document.querySelectorAll('[data-del]').forEach((b) =>
+    b.addEventListener('click', () => deleteMeal(b.dataset.del)));
+
+  const input = state.editing && $(`editInput-${state.editing}`);
+  input?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') applyEdit(state.editing);
+  });
+
+  // Goals
+  $('saveGoals')?.addEventListener('click', saveGoals);
+}
+
+async function applyEdit(id) {
+  const input = $(`editInput-${id}`);
+  const instruction = input?.value.trim();
+  if (!instruction) return;
+
+  const btn = document.querySelector(`[data-apply="${id}"]`);
+  if (btn) { btn.disabled = true; btn.textContent = 'מעדכן…'; }
+
+  try {
+    await api('edit_meal', { id, instruction });
+    state.editing = null;
+    await load();
+  } catch (err) {
+    alert(err.message || 'העדכון נכשל');
+    if (btn) { btn.disabled = false; btn.textContent = 'החל'; }
+  }
+}
+
+async function deleteMeal(id) {
+  if (!confirm('למחוק את הרישום הזה?')) return;
+  try {
+    await api('delete_meal', { id });
+    await load();
+  } catch (err) {
+    alert(err.message || 'המחיקה נכשלה');
+  }
+}
+
+async function saveGoals() {
+  const body = {
+    calories: Number($('gCal').value),
+    protein: Number($('gPro').value),
+    carbs: Number($('gCar').value),
+    fat: Number($('gFat').value),
+  };
+  const btn = $('saveGoals');
+  btn.disabled = true;
+  try {
+    await api('set_goals', body);
+    $('goalMsg').textContent = 'נשמר ✓';
+    await load();
+  } catch (err) {
+    $('goalMsg').textContent = err.message || 'השמירה נכשלה';
+    btn.disabled = false;
+  }
+}
+
+boot();
+</script>
+</body>
+</html>
