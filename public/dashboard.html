@@ -7,25 +7,30 @@
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700;900&family=Suez+One&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700;900&family=Rubik:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
 
   :root{
-    --ground:#EDF0EC;
-    --panel:#FFFFFF;
-    --ink:#16211C;
-    --soft:#5A6862;
-    --grid:#DCE2DC;
-    --line:#E4E8E3;
-    --trace:#0F7B5F;
-    --protein:#A62A5E;
-    --carbs:#24608F;
-    --fat:#B0731A;
-    --alert:#B4462A;
-    --display:'Suez One', Georgia, serif;
-    --body:'Heebo', system-ui, -apple-system, sans-serif;
-    --num:'Space Mono', ui-monospace, monospace;
+    /* Modern SaaS Palette */
+    --ground: #F4F7F6;
+    --panel: #FFFFFF;
+    --ink: #111827;
+    --soft: #6B7280;
+    --grid: #E5E7EB;
+    --line: #F3F4F6;
+    --trace: #10B981; /* Emerald Green */
+    --protein: #3B82F6; /* Blue */
+    --carbs: #F59E0B; /* Amber */
+    --fat: #EF4444; /* Rose/Red */
+    --alert: #EF4444;
+    
+    --display: 'Rubik', sans-serif;
+    --body: 'Heebo', system-ui, -apple-system, sans-serif;
+    --num: 'Space Mono', ui-monospace, monospace;
+    
+    --radius: 16px;
+    --shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
   }
 
   html,body{background:var(--ground)}
@@ -35,182 +40,190 @@
     padding-bottom:env(safe-area-inset-bottom);
   }
 
-  .wrap{max-width:1080px; margin:0 auto; padding:20px 16px 72px}
+  .wrap{max-width:1080px; margin:0 auto; padding:24px 16px 80px}
 
   /* ---------- masthead ---------- */
-  .mast{display:flex; align-items:flex-end; gap:12px; padding-bottom:14px;
-    border-bottom:2px solid var(--ink); margin-bottom:22px; flex-wrap:wrap}
-  .mast h1{font-family:var(--display); font-size:26px; font-weight:400; letter-spacing:-.2px; line-height:1}
-  .mast .sub{font-size:12px; color:var(--soft); font-weight:500; padding-bottom:2px}
-  .mast .out{margin-inline-start:auto; font-size:12px; color:var(--soft);
-    background:none; border:1px solid var(--line); border-radius:8px; padding:7px 12px;
-    font-family:inherit; cursor:pointer; transition:background .15s}
-  .mast .out:hover{background:var(--panel)}
+  .mast{display:flex; align-items:center; gap:12px; padding-bottom:16px;
+    margin-bottom:24px; flex-wrap:wrap; border-bottom:1px solid var(--grid)}
+  .mast h1{font-family:var(--display); font-size:24px; font-weight:700; letter-spacing:-.5px; color:var(--ink)}
+  .mast .sub{font-size:13px; color:var(--soft); font-weight:500; background:var(--line); padding:4px 10px; border-radius:20px}
+  .mast .out{margin-inline-start:auto; font-size:13px; color:var(--ink); font-weight:500;
+    background:var(--panel); border:1px solid var(--grid); border-radius:8px; padding:8px 14px;
+    cursor:pointer; transition:all .2s; box-shadow:0 1px 2px rgba(0,0,0,0.05)}
+  .mast .out:hover{background:var(--grid)}
 
-  .eyebrow{font-size:10.5px; font-weight:900; letter-spacing:1.4px; color:var(--soft);
-    text-transform:uppercase; margin-bottom:10px; display:flex; align-items:center; gap:8px}
-  .eyebrow::after{content:''; flex:1; height:1px; background:var(--line)}
-
-  section{margin-bottom:30px}
+  .eyebrow{font-size:14px; font-weight:700; color:var(--ink);
+    margin-bottom:16px; display:flex; align-items:center; gap:12px; font-family:var(--display)}
+  
+  section{margin-bottom:40px}
 
   /* ---------- login ---------- */
-  .login{max-width:400px; margin:8vh auto; padding:0 16px}
-  .login .card{background:var(--panel); border:1px solid var(--line);
-    border-top:3px solid var(--ink); border-radius:4px; padding:26px 22px}
-  .login h2{font-family:var(--display); font-size:22px; font-weight:400; margin-bottom:8px}
-  .login p{font-size:13.5px; color:var(--soft); line-height:1.6; margin-bottom:20px}
-  .login p code{font-family:var(--num); background:var(--ground); padding:1px 5px; border-radius:3px;
-    font-size:12.5px}
-  .codebox{width:100%; border:1px solid var(--grid); border-radius:8px; background:var(--ground);
-    padding:14px; font-family:var(--num); font-size:26px; font-weight:700; text-align:center;
-    letter-spacing:6px; color:var(--ink); direction:ltr}
-  .codebox:focus{outline:2px solid var(--trace); outline-offset:1px; background:var(--panel)}
-  .btn{width:100%; margin-top:12px; padding:13px; border:none; border-radius:8px;
-    background:var(--ink); color:var(--ground); font-family:inherit; font-size:15px;
-    font-weight:700; cursor:pointer; transition:opacity .15s}
+  .login{max-width:400px; margin:12vh auto; padding:0 16px}
+  .login .card{background:var(--panel); box-shadow:var(--shadow); border-radius:var(--radius); padding:32px 24px; text-align:center}
+  .login h2{font-family:var(--display); font-size:24px; font-weight:700; margin-bottom:12px}
+  .login p{font-size:14px; color:var(--soft); line-height:1.6; margin-bottom:24px}
+  .login p code{font-family:var(--num); background:var(--ground); padding:2px 6px; border-radius:4px; color:var(--ink); font-weight:bold;}
+  .codebox{width:100%; border:2px solid var(--grid); border-radius:12px; background:var(--ground);
+    padding:16px; font-family:var(--num); font-size:32px; font-weight:700; text-align:center;
+    letter-spacing:8px; color:var(--ink); direction:ltr; transition:all .2s}
+  .codebox:focus{outline:none; border-color:var(--trace); background:var(--panel); box-shadow:0 0 0 4px rgba(16, 185, 129, 0.1)}
+  .btn{width:100%; margin-top:16px; padding:14px; border:none; border-radius:12px;
+    background:var(--ink); color:var(--panel); font-family:inherit; font-size:16px;
+    font-weight:700; cursor:pointer; transition:transform .1s, opacity .2s}
+  .btn:active{transform:scale(0.98)}
   .btn:hover{opacity:.9}
-  .btn:disabled{opacity:.4; cursor:default}
-  .msg{margin-top:12px; font-size:13px; line-height:1.5; padding:10px 12px; border-radius:8px}
-  .msg.err{background:#FAEDE9; border:1px solid #EFCDC2; color:#8A3A1F}
-  .msg.ok{background:#E9F2ED; border:1px solid #C6DCD0; color:#1B5C43}
+  .btn:disabled{opacity:.5; cursor:not-allowed}
+  .msg{margin-top:16px; font-size:14px; padding:12px; border-radius:8px; font-weight:500}
+  .msg.err{background:#FEE2E2; color:#991B1B}
+  .msg.ok{background:#D1FAE5; color:#065F46}
+
+  /* ---------- HERO: Daily Goals ---------- */
+  .hero-grid{display:grid; grid-template-columns:1fr; gap:16px; margin-bottom:16px}
+  @media (min-width: 768px){ .hero-grid{grid-template-columns:1.5fr 2fr;} }
+  
+  .cal-card{background:var(--panel); border-radius:var(--radius); padding:24px; box-shadow:var(--shadow); display:flex; flex-direction:column; align-items:center; justify-content:center; position:relative; overflow:hidden;}
+  .cal-circle-wrap{position:relative; width:160px; height:160px; display:flex; align-items:center; justify-content:center; flex-direction:column}
+  .cal-circle-wrap svg{position:absolute; top:0; left:0; width:100%; height:100%; transform:rotate(-90deg)}
+  .cal-circle-bg{fill:none; stroke:var(--grid); stroke-width:12}
+  .cal-circle-prog{fill:none; stroke:var(--trace); stroke-width:12; stroke-linecap:round; transition:stroke-dashoffset 1s ease}
+  .cal-val{font-family:var(--num); font-size:32px; font-weight:700; color:var(--ink); line-height:1}
+  .cal-lbl{font-size:13px; color:var(--soft); font-weight:500; margin-top:4px}
+  
+  .macros-grid{display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; background:var(--panel); padding:20px; border-radius:var(--radius); box-shadow:var(--shadow);}
+  .gcard{display:flex; flex-direction:column; justify-content:center;}
+  .gcard .lbl{font-size:13px; font-weight:700; color:var(--soft); margin-bottom:8px;}
+  .gcard .val-wrap{display:flex; align-items:baseline; gap:4px}
+  .gcard .val{font-family:var(--num); font-size:24px; font-weight:700; line-height:1}
+  .gcard .of{font-family:var(--num); font-size:12px; color:var(--soft)}
+  .gcard .track{height:8px; background:var(--grid); border-radius:20px; margin-top:12px; overflow:hidden}
+  .gcard .fill{height:100%; border-radius:20px; transition:width 1s cubic-bezier(.4,0,.2,1)}
+
+  /* Goals settings toggle */
+  details.goal-settings { background:var(--panel); border-radius:var(--radius); box-shadow:var(--shadow); margin-top:16px; overflow:hidden;}
+  details.goal-settings summary { padding:16px 20px; font-weight:700; cursor:pointer; list-style:none; display:flex; align-items:center; color:var(--soft); font-size:14px; transition:background .2s;}
+  details.goal-settings summary:hover {background:var(--ground)}
+  details.goal-settings summary::-webkit-details-marker { display:none; }
+  .gedit{padding:20px; border-top:1px solid var(--grid)}
+  .gform{display:grid; grid-template-columns:repeat(2,1fr); gap:16px; margin-bottom:16px}
+  @media (min-width: 600px){ .gform{grid-template-columns:repeat(4,1fr);} }
+  .gform label{display:block}
+  .gform span{display:block; font-size:12px; font-weight:700; color:var(--soft); margin-bottom:6px}
+  .gform input{width:100%; border:1px solid var(--grid); border-radius:8px; padding:10px; font-family:var(--num); font-size:16px; font-weight:700; background:var(--ground); color:var(--ink); transition:all .2s}
+  .gform input:focus{outline:none; border-color:var(--trace); background:var(--panel); box-shadow:0 0 0 3px rgba(16, 185, 129, 0.1)}
 
   /* ---------- range switch ---------- */
-  .range{display:flex; gap:6px; margin-bottom:14px}
-  .range button{padding:8px 16px; border:1px solid var(--line); background:var(--panel);
+  .range{display:flex; gap:8px; margin-bottom:16px}
+  .range button{padding:6px 16px; border:1px solid var(--grid); background:var(--panel);
     border-radius:20px; font-family:inherit; font-size:13px; font-weight:700; color:var(--soft);
-    cursor:pointer; transition:.15s}
-  .range button.on{background:var(--ink); color:var(--ground); border-color:var(--ink)}
+    cursor:pointer; transition:all .2s; box-shadow:0 1px 2px rgba(0,0,0,0.05)}
+  .range button.on{background:var(--ink); color:var(--panel); border-color:var(--ink)}
 
   /* ---------- SIGNATURE: the recording strip ---------- */
-  .recorder{background:var(--panel); border:1px solid var(--line); border-radius:4px;
-    padding:18px 14px 10px; position:relative}
-  .recorder .rhead{display:flex; align-items:baseline; gap:10px; margin-bottom:2px;
-    padding:0 4px 12px; flex-wrap:wrap}
-  .recorder .rhead .big{font-family:var(--num); font-size:34px; font-weight:700; line-height:.9;
-    color:var(--trace)}
-  .recorder .rhead .unit{font-size:12px; font-weight:700; color:var(--soft)}
-  .recorder .rhead .meta{margin-inline-start:auto; font-size:12px; color:var(--soft); text-align:left;
-    line-height:1.5}
+  .recorder{background:var(--panel); border-radius:var(--radius); padding:24px; box-shadow:var(--shadow); position:relative}
+  .recorder .rhead{display:flex; align-items:baseline; gap:12px; margin-bottom:16px; flex-wrap:wrap}
+  .recorder .rhead .big{font-family:var(--num); font-size:36px; font-weight:700; line-height:.9; color:var(--ink)}
+  .recorder .rhead .unit{font-size:14px; font-weight:500; color:var(--soft)}
+  .recorder .rhead .meta{margin-inline-start:auto; font-size:13px; color:var(--soft); text-align:left; line-height:1.5; background:var(--ground); padding:8px 12px; border-radius:8px}
   .recorder .rhead .meta b{font-family:var(--num); color:var(--ink)}
   .chartbox{direction:ltr; width:100%; overflow:hidden}
   svg{display:block; width:100%; height:auto; touch-action:manipulation}
   .tickline{cursor:pointer}
-  .tickline:hover rect.hit{fill:rgba(15,123,95,.07)}
+  .tickline:hover rect.hit{fill:rgba(16,185,129,.05)}
 
-  .legend{display:flex; gap:14px; flex-wrap:wrap; padding:12px 4px 4px; font-size:11.5px;
-    color:var(--soft); border-top:1px solid var(--line); margin-top:8px}
-  .legend span{display:flex; align-items:center; gap:5px}
-  .legend i{width:14px; height:3px; border-radius:2px; display:block}
-  .legend i.dash{background:repeating-linear-gradient(90deg,var(--soft) 0 3px,transparent 3px 6px)}
+  .legend{display:flex; gap:16px; flex-wrap:wrap; padding-top:16px; font-size:12px; font-weight:500;
+    color:var(--soft); border-top:1px solid var(--grid); margin-top:16px}
+  .legend span{display:flex; align-items:center; gap:6px}
+  .legend i{width:12px; height:12px; border-radius:3px; display:block}
+  .legend i.dash{background:none; border-top:2px dashed var(--soft); height:0; width:16px}
 
   /* ---------- macro mini traces ---------- */
-  .minis{display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:12px}
-  .mini{background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:12px 10px 6px}
-  .mini .mh{display:flex; align-items:baseline; gap:6px; padding:0 2px 6px}
-  .mini .mh .nm{font-size:12px; font-weight:700}
-  .mini .mh .av{margin-inline-start:auto; font-family:var(--num); font-size:13px; font-weight:700}
-  .mini .mh .gl{font-family:var(--num); font-size:11px; color:var(--soft)}
-
-  /* ---------- goal cards ---------- */
-  .goals{display:grid; grid-template-columns:repeat(4,1fr); gap:12px}
-  .gcard{background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:14px 14px 12px}
-  .gcard .lbl{font-size:11px; font-weight:900; letter-spacing:.6px; color:var(--soft); margin-bottom:8px}
-  .gcard .val{font-family:var(--num); font-size:23px; font-weight:700; line-height:1}
-  .gcard .of{font-family:var(--num); font-size:12px; color:var(--soft); margin-top:3px}
-  .gcard .track{height:5px; background:var(--grid); border-radius:20px; margin-top:10px; overflow:hidden}
-  .gcard .fill{height:100%; border-radius:20px; transition:width .5s cubic-bezier(.4,0,.2,1)}
+  .minis{display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-top:16px}
+  .mini{background:var(--panel); border-radius:var(--radius); padding:16px; box-shadow:var(--shadow)}
+  .mini .mh{display:flex; align-items:baseline; gap:8px; margin-bottom:12px}
+  .mini .mh .nm{font-size:14px; font-weight:700}
+  .mini .mh .av{margin-inline-start:auto; font-family:var(--num); font-size:16px; font-weight:700}
+  .mini .mh .gl{font-family:var(--num); font-size:12px; color:var(--soft)}
 
   /* ---------- day detail ---------- */
-  .daypanel{background:var(--panel); border:1px solid var(--line); border-radius:4px; overflow:hidden}
-  .daypanel .dh{display:flex; align-items:center; gap:10px; padding:14px 16px;
-    border-bottom:1px solid var(--line); flex-wrap:wrap}
-  .daypanel .dh h3{font-family:var(--display); font-size:17px; font-weight:400}
-  .daypanel .dh .tot{margin-inline-start:auto; font-family:var(--num); font-size:15px; font-weight:700}
-  .daypanel .dh .nav{display:flex; gap:6px}
-  .daypanel .dh .nav button{width:30px; height:30px; border:1px solid var(--line); background:var(--ground);
-    border-radius:7px; cursor:pointer; font-size:14px; color:var(--ink); font-family:inherit}
-  .daypanel .dh .nav button:hover{background:var(--panel)}
-  .daypanel .dh .nav button:disabled{opacity:.35; cursor:default}
+  .daypanel{background:var(--panel); border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden}
+  .daypanel .dh{display:flex; align-items:center; gap:16px; padding:20px 24px;
+    background:var(--ground); border-bottom:1px solid var(--grid); flex-wrap:wrap}
+  .daypanel .dh h3{font-family:var(--display); font-size:18px; font-weight:700}
+  .daypanel .dh .tot{margin-inline-start:auto; font-family:var(--num); font-size:16px; font-weight:700; background:var(--panel); padding:6px 12px; border-radius:20px; box-shadow:0 1px 2px rgba(0,0,0,0.05)}
+  .daypanel .dh .nav{display:flex; gap:8px}
+  .daypanel .dh .nav button{width:36px; height:36px; border:1px solid var(--grid); background:var(--panel);
+    border-radius:10px; cursor:pointer; font-size:18px; color:var(--ink); display:flex; align-items:center; justify-content:center; transition:all .2s}
+  .daypanel .dh .nav button:hover{background:var(--grid)}
+  .daypanel .dh .nav button:disabled{opacity:.4; cursor:default; background:transparent}
 
-  .meal{padding:14px 16px; border-bottom:1px solid var(--line)}
+  .meal{padding:20px 24px; border-bottom:1px solid var(--grid); transition:background .2s}
+  .meal:hover{background:#FAFAFA}
   .meal:last-child{border-bottom:none}
-  .meal .mtop{display:flex; align-items:baseline; gap:9px; flex-wrap:wrap}
-  .meal .time{font-family:var(--num); font-size:11.5px; color:var(--soft)}
-  .meal .txt{font-weight:700; font-size:14.5px; flex:1; min-width:120px}
-  .meal .kc{font-family:var(--num); font-size:14.5px; font-weight:700}
-  .chip{font-size:9.5px; font-weight:900; letter-spacing:.5px; padding:2px 7px; border-radius:20px}
-  .chip.high{background:#E4F0E9; color:#1B5C43}
-  .chip.medium{background:#FBF2DF; color:#7E621A}
-  .chip.low{background:#FAE9E4; color:#8A3A2B}
-  .chip.photo{background:#E7EEF4; color:#24608F}
-  .items{margin-top:9px; padding-inline-start:2px}
-  .items div{display:flex; gap:8px; font-size:12.5px; color:var(--soft); padding:2.5px 0}
-  .items div span:last-child{margin-inline-start:auto; font-family:var(--num)}
-  .macline{margin-top:8px; font-family:var(--num); font-size:11.5px; color:var(--soft)}
-  .acts{display:flex; gap:7px; margin-top:11px}
-  .acts button{border:1px solid var(--line); background:var(--ground); border-radius:7px;
-    padding:6px 12px; font-family:inherit; font-size:12px; font-weight:700; cursor:pointer;
-    color:var(--ink); transition:.15s}
-  .acts button:hover{background:var(--panel)}
-  .acts button.dz{color:var(--alert)}
-  .editrow{display:flex; gap:7px; margin-top:9px}
-  .editrow input{flex:1; border:1px solid var(--grid); border-radius:7px; padding:9px 11px;
-    font-family:inherit; font-size:13.5px; background:var(--ground); color:var(--ink)}
-  .editrow input:focus{outline:2px solid var(--trace); outline-offset:1px; background:var(--panel)}
+  .meal .mtop{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:8px}
+  .meal .time{font-family:var(--num); font-size:13px; color:var(--soft); font-weight:700}
+  .meal .txt{font-weight:700; font-size:16px; flex:1; min-width:120px; color:var(--ink)}
+  .meal .kc{font-family:var(--num); font-size:16px; font-weight:700; color:var(--trace)}
+  .chip{font-size:10px; font-weight:700; padding:4px 8px; border-radius:6px; letter-spacing:0.5px}
+  .chip.high{background:#D1FAE5; color:#065F46}
+  .chip.medium{background:#FEF3C7; color:#92400E}
+  .chip.low{background:#FEE2E2; color:#991B1B}
+  .chip.photo{background:#DBEAFE; color:#1E40AF}
+  .items{padding-inline-start:0; margin-bottom:12px; background:var(--ground); padding:12px; border-radius:8px}
+  .items div{display:flex; gap:12px; font-size:14px; color:var(--soft); padding:4px 0}
+  .items div span:last-child{margin-inline-start:auto; font-family:var(--num); font-weight:700; color:var(--ink)}
+  .macline{font-family:var(--num); font-size:13px; color:var(--soft); font-weight:500; border-top:1px dashed var(--grid); padding-top:12px}
+  .acts{display:flex; gap:8px; margin-top:16px}
+  .acts button{border:1px solid var(--grid); background:var(--panel); border-radius:8px;
+    padding:8px 16px; font-family:inherit; font-size:13px; font-weight:700; cursor:pointer;
+    color:var(--soft); transition:all .2s; box-shadow:0 1px 2px rgba(0,0,0,0.05)}
+  .acts button:hover{background:var(--grid); color:var(--ink)}
+  .acts button.dz{color:var(--alert); border-color:#FECACA; background:#FEF2F2}
+  .acts button.dz:hover{background:#FEE2E2}
+  
+  .editrow{display:flex; gap:8px; margin-top:12px}
+  .editrow input{flex:1; border:1px solid var(--trace); border-radius:8px; padding:10px 14px;
+    font-family:inherit; font-size:14px; background:var(--panel); color:var(--ink); box-shadow:0 0 0 3px rgba(16, 185, 129, 0.1)}
+  .editrow input:focus{outline:none}
 
-  .empty{padding:30px 18px; text-align:center; color:var(--soft); font-size:13.5px; line-height:1.7}
+  .empty{padding:40px 20px; text-align:center; color:var(--soft); font-size:15px; line-height:1.7}
 
   /* ---------- habits ---------- */
-  .hgrid{display:grid; grid-template-columns:1.3fr 1fr; gap:14px}
-  .hpanel{background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:16px}
-  .hpanel h4{font-size:13px; font-weight:900; margin-bottom:14px}
-  .hrow{display:flex; align-items:center; gap:9px; padding:6px 0; font-size:13px}
-  .hrow .rank{font-family:var(--num); font-size:10.5px; color:var(--soft); width:16px; flex:none}
-  .hrow .nm{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-  .hrow .cnt{font-family:var(--num); font-size:11.5px; color:var(--soft); flex:none}
-  .hbar{height:4px; background:var(--grid); border-radius:20px; overflow:hidden; width:64px; flex:none}
+  .hgrid{display:grid; grid-template-columns:1fr; gap:16px}
+  @media (min-width: 768px){ .hgrid{grid-template-columns:1.2fr 1fr;} }
+  
+  .hpanel{background:var(--panel); border-radius:var(--radius); padding:24px; box-shadow:var(--shadow)}
+  .hpanel h4{font-size:16px; font-weight:700; margin-bottom:20px; font-family:var(--display)}
+  
+  .hrow{display:flex; align-items:center; gap:12px; padding:10px 0; font-size:14px; border-bottom:1px solid var(--line)}
+  .hrow:last-child{border-bottom:none}
+  .hrow .rank{font-family:var(--num); font-size:12px; font-weight:700; color:var(--soft); background:var(--ground); width:24px; height:24px; display:flex; align-items:center; justify-content:center; border-radius:50%; flex:none}
+  .hrow .nm{flex:1; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .hrow .cnt{font-family:var(--num); font-size:12px; color:var(--soft); flex:none; text-align:left}
+  .hbar{height:6px; background:var(--grid); border-radius:20px; overflow:hidden; width:80px; flex:none}
   .hbar i{display:block; height:100%; background:var(--trace); border-radius:20px}
 
-  .dowlist div{display:flex; align-items:center; gap:9px; padding:5px 0; font-size:13px}
-  .dowlist .dn{width:18px; font-weight:700; flex:none}
-  .dowlist .dbar{flex:1; height:16px; background:var(--grid); border-radius:3px; overflow:hidden}
-  .dowlist .dbar i{display:block; height:100%; border-radius:3px}
-  .dowlist .dv{font-family:var(--num); font-size:11.5px; color:var(--soft); flex:none; width:44px;
-    text-align:left}
+  .dowlist div{display:flex; align-items:center; gap:12px; padding:8px 0; font-size:14px}
+  .dowlist .dn{width:24px; font-weight:700; flex:none; color:var(--soft)}
+  .dowlist .dbar{flex:1; height:24px; background:var(--ground); border-radius:6px; overflow:hidden; position:relative}
+  .dowlist .dbar i{display:block; height:100%; border-radius:6px; min-width:4px}
+  .dowlist .dv{font-family:var(--num); font-size:13px; font-weight:700; color:var(--ink); flex:none; width:50px; text-align:left}
 
-  /* ---------- goals editor ---------- */
-  .gedit{background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:16px}
-  .gform{display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:10px}
-  .gform label{display:block}
-  .gform span{display:block; font-size:10.5px; font-weight:900; letter-spacing:.5px; color:var(--soft);
-    margin-bottom:5px}
-  .gform input{width:100%; border:1px solid var(--grid); border-radius:7px; padding:9px;
-    font-family:var(--num); font-size:16px; font-weight:700; text-align:center;
-    background:var(--ground); color:var(--ink)}
-  .gform input:focus{outline:2px solid var(--trace); outline-offset:1px; background:var(--panel)}
-  .gedit .btn{width:auto; padding:10px 20px; margin-top:0; font-size:13.5px}
-
-  .loading{padding:60px 20px; text-align:center; color:var(--soft); font-size:13.5px}
-  .spinner{width:22px; height:22px; border:2px solid var(--grid); border-top-color:var(--trace);
-    border-radius:50%; margin:0 auto 14px; animation:sp .7s linear infinite}
+  .loading{padding:80px 20px; text-align:center; color:var(--soft); font-size:16px; font-weight:500}
+  .spinner{width:32px; height:32px; border:3px solid var(--grid); border-top-color:var(--trace);
+    border-radius:50%; margin:0 auto 16px; animation:sp .8s linear infinite}
   @keyframes sp{to{transform:rotate(360deg)}}
 
   .hidden{display:none !important}
 
   @media (max-width:720px){
     .minis{grid-template-columns:1fr}
-    .goals{grid-template-columns:repeat(2,1fr)}
-    .hgrid{grid-template-columns:1fr}
-    .gform{grid-template-columns:repeat(2,1fr)}
-    .mast h1{font-size:22px}
+    .mast h1{font-size:20px}
     .recorder .rhead .big{font-size:28px}
   }
 
   @media (prefers-reduced-motion:reduce){
     *{animation:none !important; transition:none !important}
   }
-
-  :focus-visible{outline:2px solid var(--trace); outline-offset:2px}
 </style>
 </head>
 <body>
@@ -334,7 +347,6 @@ $('logout').addEventListener('click', () => {
 async function boot() {
   if (TG) { try { TG.ready(); TG.expand(); } catch {} }
 
-  // One-tap link from the bot: #t=<token>
   const hash = new URLSearchParams(location.hash.slice(1));
   const hashToken = hash.get('t');
   if (hashToken) {
@@ -381,9 +393,7 @@ async function load() {
 }
 
 /* ============================================================
-   SIGNATURE: the recording strip
-   A continuous trace of daily calories over the goal baseline,
-   with clickable day ticks that scrub the detail panel below.
+   SIGNATURE: the recording strip (Retained Original Logic)
    ============================================================ */
 function recorderSVG(trend, goal, selected) {
   const W = 900, H = 210;
@@ -392,14 +402,12 @@ function recorderSVG(trend, goal, selected) {
 
   const vals = trend.map((t) => t.calories).filter((v) => v > 0);
   const maxVal = vals.length ? Math.max(...vals) : goal;
-  // Scale to the data, with just enough headroom to keep the goal baseline in view.
   const peak = Math.max(maxVal, goal) * 1.12;
   const x = (i) => padL + (trend.length === 1 ? iw / 2 : (i / (trend.length - 1)) * iw);
   const y = (v) => padT + ih - (v / peak) * ih;
 
   const gy = y(goal);
 
-  // Trace path — only across days that have data, broken by gaps
   let segs = [], cur = [];
   trend.forEach((t, i) => {
     if (t.calories > 0) cur.push([x(i), y(t.calories)]);
@@ -414,14 +422,12 @@ function recorderSVG(trend, goal, selected) {
     return `${lineOf(s)} L${s[s.length - 1][0].toFixed(1)},${base} L${s[0][0].toFixed(1)},${base} Z`;
   };
 
-  // Horizontal guides
   const guides = [0.5, 1].map((f) => {
     const gv = peak * f;
     return `<line x1="${padL}" x2="${W - padR}" y1="${y(gv).toFixed(1)}" y2="${y(gv).toFixed(1)}"
-      stroke="var(--grid)" stroke-width="1"/>`;
+      stroke="var(--line)" stroke-width="1"/>`;
   }).join('');
 
-  // Day ticks: clickable columns
   const step = iw / Math.max(1, trend.length - 1);
   const ticks = trend.map((t, i) => {
     const cx = x(i);
@@ -432,43 +438,40 @@ function recorderSVG(trend, goal, selected) {
     return `<g class="tickline" data-day="${t.day}" role="button" tabindex="0"
               aria-label="${dayShort(t.day)}: ${n0(t.calories)} קלוריות">
       <rect class="hit" x="${(cx - w / 2).toFixed(1)}" y="${padT}" width="${w.toFixed(1)}" height="${ih}"
-        fill="${isSel ? 'rgba(15,123,95,.10)' : 'transparent'}"/>
-      ${has ? `<circle cx="${cx.toFixed(1)}" cy="${y(t.calories).toFixed(1)}" r="${isSel ? 4.5 : 2.6}"
+        fill="${isSel ? 'rgba(16,185,129,.10)' : 'transparent'}"/>
+      ${has ? `<circle cx="${cx.toFixed(1)}" cy="${y(t.calories).toFixed(1)}" r="${isSel ? 5 : 3}"
         fill="${over ? 'var(--alert)' : 'var(--trace)'}"
         stroke="var(--panel)" stroke-width="${isSel ? 2 : 1}"/>` : ''}
       ${isSel ? `<line x1="${cx.toFixed(1)}" x2="${cx.toFixed(1)}" y1="${padT}" y2="${padT + ih}"
-        stroke="var(--trace)" stroke-width="1" stroke-dasharray="2 3" opacity=".55"/>` : ''}
+        stroke="var(--trace)" stroke-width="1.5" stroke-dasharray="3 3" opacity=".6"/>` : ''}
     </g>`;
   }).join('');
 
-  // Sparse date labels
   const every = Math.ceil(trend.length / 7);
   const labels = trend.map((t, i) => {
     if (i % every !== 0 && i !== trend.length - 1) return '';
     return `<text x="${x(i).toFixed(1)}" y="${H - 8}" text-anchor="middle"
-      font-family="Space Mono, monospace" font-size="10" fill="var(--soft)">${dayShort(t.day)}</text>`;
+      font-family="Space Mono, monospace" font-size="11" font-weight="700" fill="var(--soft)">${dayShort(t.day)}</text>`;
   }).join('');
 
-  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
-    aria-label="מגמת קלוריות יומית">
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="מגמת קלוריות יומית">
     <defs>
       <linearGradient id="tg" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="var(--trace)" stop-opacity=".18"/>
+        <stop offset="0%" stop-color="var(--trace)" stop-opacity=".2"/>
         <stop offset="100%" stop-color="var(--trace)" stop-opacity="0"/>
       </linearGradient>
     </defs>
     ${guides}
     ${segs.map((s) => `<path d="${areaOf(s)}" fill="url(#tg)"/>`).join('')}
     <line x1="${padL}" x2="${W - padR}" y1="${gy.toFixed(1)}" y2="${gy.toFixed(1)}"
-      stroke="var(--soft)" stroke-width="1.4" stroke-dasharray="5 4" opacity=".8"/>
+      stroke="var(--soft)" stroke-width="1.5" stroke-dasharray="6 4" opacity=".5"/>
     ${segs.map((s) => `<path d="${lineOf(s)}" fill="none" stroke="var(--trace)"
-      stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`).join('')}
+      stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`).join('')}
     ${ticks}
     ${labels}
   </svg>`;
 }
 
-/* Small macro trace */
 function miniSVG(trend, field, color, goal) {
   const W = 300, H = 54, pad = 4;
   const vals = trend.map((t) => t[field]).filter((v) => v > 0);
@@ -487,14 +490,14 @@ function miniSVG(trend, field, color, goal) {
   const gy = y(goal);
   return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
     <line x1="${pad}" x2="${W - pad}" y1="${gy.toFixed(1)}" y2="${gy.toFixed(1)}"
-      stroke="var(--grid)" stroke-width="1.2" stroke-dasharray="4 3"/>
+      stroke="var(--grid)" stroke-width="1.5" stroke-dasharray="4 4"/>
     ${segs.map((s) => `<path d="${s.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ')}"
-      fill="none" stroke="${color}" stroke-width="1.8" stroke-linejoin="round"/>`).join('')}
+      fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>`).join('')}
   </svg>`;
 }
 
 /* ============================================================
-   Render
+   Render (Redesigned Layout)
    ============================================================ */
 function render() {
   const d = state.data;
@@ -502,82 +505,81 @@ function render() {
   const s = d.stats;
 
   $('subtitle').textContent =
-    `${s.loggedDays} מתוך ${s.totalDays} ימים עם רישום`;
+    `נרשמו ${s.loggedDays} מתוך ${s.totalDays} ימים`;
 
   const sel = state.selectedDay;
   const selTrend = d.trend.find((t) => t.day === sel) || { calories: 0, protein: 0, carbs: 0, fat: 0 };
   const selMeals = d.meals.filter((m) => m.day === sel).sort((a, b) => new Date(b.ts) - new Date(a.ts));
   const idx = d.trend.findIndex((t) => t.day === sel);
 
+  // Helper macro card with progress line
   const macroCard = (lbl, val, goal, color) => {
     const pct = goal > 0 ? Math.min(100, (val / goal) * 100) : 0;
     return `<div class="gcard">
       <div class="lbl">${lbl}</div>
-      <div class="val" style="color:${color}">${n1(val)}</div>
-      <div class="of">מתוך ${n0(goal)}</div>
+      <div class="val-wrap">
+        <span class="val" style="color:${color}">${n1(val)}</span>
+        <span class="of">/ ${n0(goal)}</span>
+      </div>
       <div class="track"><div class="fill" style="width:${pct}%;background:${color}"></div></div>
     </div>`;
   };
+  
+  // Calorie ring math
+  const calPct = g.calories > 0 ? Math.min(100, (d.today.calories / g.calories) * 100) : 0;
+  const dashVal = 440; // Approx 2 * pi * 70
+  const dashOffset = dashVal - (dashVal * calPct) / 100;
+  const ringColor = d.today.calories > g.calories ? 'var(--alert)' : 'var(--trace)';
 
   const maxItem = Math.max(1, ...d.topItems.map((i) => i.count));
   const maxDow = Math.max(1, ...d.weekday.map((w) => w.avg));
 
   $('content').innerHTML = `
 
-  <!-- TRENDS (priority 1) -->
+  <!-- SECTION 1: TODAY HERO -->
   <section>
-    <div class="eyebrow">מגמה לאורך זמן</div>
-    <div class="range">
-      ${[7, 30, 90].map((r) => `
-        <button data-range="${r}" class="${state.days === r ? 'on' : ''}">${r} ימים</button>
-      `).join('')}
-    </div>
-
-    <div class="recorder">
-      <div class="rhead">
-        <span class="big">${n0(s.avgCalories)}</span>
-        <span class="unit">קק"ל · ממוצע יומי</span>
-        <span class="meta">
-          יעד <b>${n0(g.calories)}</b><br>
-          ${s.overDays > 0 ? `<b>${s.overDays}</b> ימים מעל היעד` : 'אין ימים מעל היעד'}
-        </span>
+    <div class="eyebrow">היום שלי מול היעדים</div>
+    
+    <div class="hero-grid">
+      <!-- Calorie Hero -->
+      <div class="cal-card">
+        <div class="cal-circle-wrap">
+          <svg viewBox="0 0 160 160">
+             <circle class="cal-circle-bg" cx="80" cy="80" r="70"></circle>
+             <circle class="cal-circle-prog" cx="80" cy="80" r="70" 
+                     style="stroke:${ringColor}; stroke-dasharray:${dashVal}; stroke-dashoffset:${dashOffset}"></circle>
+          </svg>
+          <div class="cal-val">${n0(d.today.calories)}</div>
+          <div class="cal-lbl">מתוך ${n0(g.calories)}</div>
+        </div>
       </div>
-      <div class="chartbox" id="recorder">
-        ${recorderSVG(d.trend, g.calories, sel)}
-      </div>
-      <div class="legend">
-        <span><i style="background:var(--trace)"></i> קלוריות בפועל</span>
-        <span><i class="dash"></i> יעד יומי</span>
-        <span><i style="background:var(--alert)"></i> חריגה</span>
-        <span style="margin-inline-start:auto">לחץ על יום כדי לראות אותו למטה ↓</span>
+      
+      <!-- Macros -->
+      <div class="macros-grid">
+        ${macroCard('חלבון (ג)', d.today.protein, g.protein, 'var(--protein)')}
+        ${macroCard('פחמימות (ג)', d.today.carbs, g.carbs, 'var(--carbs)')}
+        ${macroCard('שומן (ג)', d.today.fat, g.fat, 'var(--fat)')}
       </div>
     </div>
 
-    <div class="minis">
-      <div class="mini">
-        <div class="mh"><span class="nm">חלבון</span>
-          <span class="av" style="color:var(--protein)">${n0(s.avgProtein)}</span>
-          <span class="gl">/ ${g.protein} ג</span></div>
-        ${miniSVG(d.trend, 'protein', 'var(--protein)', g.protein)}
+    <details class="goal-settings">
+      <summary>⚙️ עריכת יעדים יומית</summary>
+      <div class="gedit">
+        <div class="gform">
+          <label><span>קלוריות</span><input type="number" id="gCal" value="${g.calories}" min="0"></label>
+          <label><span>חלבון (ג)</span><input type="number" id="gPro" value="${g.protein}" min="0"></label>
+          <label><span>פחמימות (ג)</span><input type="number" id="gCar" value="${g.carbs}" min="0"></label>
+          <label><span>שומן (ג)</span><input type="number" id="gFat" value="${g.fat}" min="0"></label>
+        </div>
+        <button class="btn" id="saveGoals" style="width:auto; padding:10px 24px;">שמור יעדים</button>
+        <span id="goalMsg" style="font-size:13px; font-weight:700; color:var(--trace); margin-inline-start:12px;"></span>
       </div>
-      <div class="mini">
-        <div class="mh"><span class="nm">פחמימות</span>
-          <span class="av" style="color:var(--carbs)">${n0(s.avgCarbs)}</span>
-          <span class="gl">/ ${g.carbs} ג</span></div>
-        ${miniSVG(d.trend, 'carbs', 'var(--carbs)', g.carbs)}
-      </div>
-      <div class="mini">
-        <div class="mh"><span class="nm">שומן</span>
-          <span class="av" style="color:var(--fat)">${n0(s.avgFat)}</span>
-          <span class="gl">/ ${g.fat} ג</span></div>
-        ${miniSVG(d.trend, 'fat', 'var(--fat)', g.fat)}
-      </div>
-    </div>
+    </details>
   </section>
 
-  <!-- DAY DETAIL (priority 2) -->
+  <!-- SECTION 2: DAY DETAILS -->
   <section>
-    <div class="eyebrow">פילוח יומי</div>
+    <div class="eyebrow">פילוח יומי מפורט</div>
     <div class="daypanel">
       <div class="dh">
         <div class="nav">
@@ -596,34 +598,87 @@ function render() {
         <div class="meal" style="background:var(--ground)">
           <div class="mtop">
             <span class="txt">סה"כ ליום</span>
-            <span class="kc">${n0(selTrend.calories)} קק"ל</span>
+            <span class="kc" style="color:var(--ink)">${n0(selTrend.calories)} קק"ל</span>
           </div>
-          <div class="macline">
+          <div class="macline" style="border:none; padding-top:0">
             חלבון ${n1(selTrend.protein)} ג · פחמימות ${n1(selTrend.carbs)} ג · שומן ${n1(selTrend.fat)} ג
           </div>
         </div>` : ''}
     </div>
   </section>
 
-  <!-- HABITS (priority 3) -->
+  <!-- SECTION 3: TRENDS & ANALYTICS -->
+  <section>
+    <div class="eyebrow" style="justify-content:space-between">
+      <span>מגמות ואנליטיקה</span>
+      <div class="range" style="margin:0">
+        ${[7, 30, 90].map((r) => `
+          <button data-range="${r}" class="${state.days === r ? 'on' : ''}">${r} ימים</button>
+        `).join('')}
+      </div>
+    </div>
+
+    <div class="recorder">
+      <div class="rhead">
+        <span class="big">${n0(s.avgCalories)}</span>
+        <span class="unit">קק"ל ממוצע יומי</span>
+        <span class="meta">
+          יעד: <b>${n0(g.calories)}</b><br>
+          ${s.overDays > 0 ? `<b style="color:var(--alert)">${s.overDays}</b> ימים של חריגה` : 'אין חריגות מהיעד'}
+        </span>
+      </div>
+      <div class="chartbox" id="recorder">
+        ${recorderSVG(d.trend, g.calories, sel)}
+      </div>
+      <div class="legend">
+        <span><i style="background:var(--trace)"></i> בפועל</span>
+        <span><i class="dash"></i> יעד יומי</span>
+        <span><i style="background:var(--alert)"></i> חריגה</span>
+        <span style="margin-inline-start:auto; font-weight:700">לחץ על יום בגרף להצגת פירוט ↑</span>
+      </div>
+    </div>
+
+    <div class="minis">
+      <div class="mini">
+        <div class="mh"><span class="nm">חלבון</span>
+          <span class="av" style="color:var(--protein)">${n0(s.avgProtein)}</span>
+          <span class="gl">/ ${g.protein}ג'</span></div>
+        ${miniSVG(d.trend, 'protein', 'var(--protein)', g.protein)}
+      </div>
+      <div class="mini">
+        <div class="mh"><span class="nm">פחמימות</span>
+          <span class="av" style="color:var(--carbs)">${n0(s.avgCarbs)}</span>
+          <span class="gl">/ ${g.carbs}ג'</span></div>
+        ${miniSVG(d.trend, 'carbs', 'var(--carbs)', g.carbs)}
+      </div>
+      <div class="mini">
+        <div class="mh"><span class="nm">שומן</span>
+          <span class="av" style="color:var(--fat)">${n0(s.avgFat)}</span>
+          <span class="gl">/ ${g.fat}ג'</span></div>
+        ${miniSVG(d.trend, 'fat', 'var(--fat)', g.fat)}
+      </div>
+    </div>
+  </section>
+
+  <!-- SECTION 4: HABITS -->
   <section>
     <div class="eyebrow">הרגלים ותבניות</div>
     <div class="hgrid">
       <div class="hpanel">
-        <h4>מה אני אוכל הכי הרבה</h4>
+        <h4>מה אני אוכל הכי הרבה?</h4>
         ${d.topItems.length === 0
-          ? `<div style="font-size:13px;color:var(--soft)">עוד אין מספיק נתונים.</div>`
+          ? `<div class="empty" style="padding:20px 0">עוד אין מספיק נתונים.</div>`
           : d.topItems.map((it, i) => `
             <div class="hrow">
               <span class="rank">${i + 1}</span>
               <span class="nm">${escapeHTML(it.name)}</span>
               <span class="hbar"><i style="width:${(it.count / maxItem) * 100}%"></i></span>
-              <span class="cnt">${it.count}× · ${n0(it.avgCalories)}</span>
+              <span class="cnt">${it.count}× · ${n0(it.avgCalories)}ק"ל</span>
             </div>`).join('')}
       </div>
 
       <div class="hpanel">
-        <h4>ממוצע לפי יום בשבוע</h4>
+        <h4>ממוצע קלוריות לפי יום בשבוע</h4>
         <div class="dowlist">
           ${d.weekday.map((w) => `
             <div>
@@ -634,28 +689,6 @@ function render() {
             </div>`).join('')}
         </div>
       </div>
-    </div>
-  </section>
-
-  <!-- GOALS (priority 4) -->
-  <section>
-    <div class="eyebrow">היום מול היעדים</div>
-    <div class="goals">
-      ${macroCard('קלוריות', d.today.calories, g.calories, 'var(--trace)')}
-      ${macroCard('חלבון (ג)', d.today.protein, g.protein, 'var(--protein)')}
-      ${macroCard('פחמימות (ג)', d.today.carbs, g.carbs, 'var(--carbs)')}
-      ${macroCard('שומן (ג)', d.today.fat, g.fat, 'var(--fat)')}
-    </div>
-
-    <div class="gedit" style="margin-top:14px">
-      <div class="gform">
-        <label><span>קלוריות</span><input type="number" id="gCal" value="${g.calories}" min="0"></label>
-        <label><span>חלבון (ג)</span><input type="number" id="gPro" value="${g.protein}" min="0"></label>
-        <label><span>פחמימות (ג)</span><input type="number" id="gCar" value="${g.carbs}" min="0"></label>
-        <label><span>שומן (ג)</span><input type="number" id="gFat" value="${g.fat}" min="0"></label>
-      </div>
-      <button class="btn" id="saveGoals">שמור יעדים</button>
-      <span id="goalMsg" style="font-size:12.5px;color:var(--soft);margin-inline-start:10px"></span>
     </div>
   </section>
   `;
@@ -675,8 +708,8 @@ function mealHTML(m) {
       <span class="time">${t}</span>
       <span class="txt">${escapeHTML(m.text)}</span>
       <span class="chip ${m.source === 'photo' ? 'photo' : m.confidence}">
-        ${m.source === 'photo' ? 'תמונה' : conf}</span>
-      <span class="kc">${n0(m.totals?.calories)}</span>
+        ${m.source === 'photo' ? '📷 תמונה' : conf}</span>
+      <span class="kc">${n0(m.totals?.calories)} קק"ל</span>
     </div>
 
     <div class="items">
@@ -688,20 +721,20 @@ function mealHTML(m) {
     </div>
 
     <div class="macline">
-      חלבון ${n1(m.totals?.protein)} · פחמימות ${n1(m.totals?.carbs)} · שומן ${n1(m.totals?.fat)}
+      חלבון ${n1(m.totals?.protein)}ג' · פחמימות ${n1(m.totals?.carbs)}ג' · שומן ${n1(m.totals?.fat)}ג'
     </div>
 
     ${editing ? `
       <div class="editrow">
         <input id="editInput-${m.id}" placeholder='מה לתקן? למשל: "רק חצי" · "150 גרם" · "בלי הדבש"'>
-        <button class="acts" style="border:1px solid var(--line);background:var(--ink);color:var(--ground);
-          border-radius:7px;padding:0 14px;font-family:inherit;font-weight:700;font-size:12.5px;cursor:pointer"
+        <button class="acts" style="border:none;background:var(--trace);color:var(--panel);
+          border-radius:8px;padding:0 20px;font-family:inherit;font-weight:700;font-size:14px;cursor:pointer; transition:opacity .2s"
           data-apply="${m.id}">החל</button>
       </div>
       <div class="acts"><button data-cancel="${m.id}">בטל</button></div>
     ` : `
       <div class="acts">
-        <button data-edit="${m.id}">ערוך</button>
+        <button data-edit="${m.id}">ערוך ארוחה</button>
         <button class="dz" data-del="${m.id}">מחק</button>
       </div>
     `}
@@ -717,7 +750,6 @@ function escapeHTML(s = '') {
    Interactions
    ============================================================ */
 function wire() {
-  // Range switch
   document.querySelectorAll('[data-range]').forEach((b) => {
     b.addEventListener('click', () => {
       state.days = Number(b.dataset.range);
@@ -727,7 +759,6 @@ function wire() {
     });
   });
 
-  // Scrub the recording strip
   const pick = (day) => { state.selectedDay = day; state.editing = null; render(); };
   document.querySelectorAll('.tickline').forEach((g) => {
     g.addEventListener('click', () => pick(g.dataset.day));
@@ -736,13 +767,11 @@ function wire() {
     });
   });
 
-  // Day nav (RTL: › goes back in time)
   const trend = state.data.trend;
   const i = trend.findIndex((t) => t.day === state.selectedDay);
   $('prevDay')?.addEventListener('click', () => { if (i > 0) pick(trend[i - 1].day); });
   $('nextDay')?.addEventListener('click', () => { if (i < trend.length - 1) pick(trend[i + 1].day); });
 
-  // Meal actions
   document.querySelectorAll('[data-edit]').forEach((b) =>
     b.addEventListener('click', () => {
       state.editing = b.dataset.edit;
@@ -764,7 +793,6 @@ function wire() {
     if (e.key === 'Enter') applyEdit(state.editing);
   });
 
-  // Goals
   $('saveGoals')?.addEventListener('click', saveGoals);
 }
 
@@ -807,7 +835,7 @@ async function saveGoals() {
   btn.disabled = true;
   try {
     await api('set_goals', body);
-    $('goalMsg').textContent = 'נשמר ✓';
+    $('goalMsg').textContent = 'נשמר בהצלחה ✓';
     await load();
   } catch (err) {
     $('goalMsg').textContent = err.message || 'השמירה נכשלה';
