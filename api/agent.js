@@ -3,7 +3,7 @@
 // Every write action replies with what was done + an inline undo button.
 
 import { createClient } from '@supabase/supabase-js';
-import { lastDayKeys, getMealsRange } from '../lib/db.js';
+import { dayKey, lastDayKeys, getMealsRange } from '../lib/db.js';
 import { getContext, runAgent, undoAction, estimateSplit, getDay, logChatTurn } from '../lib/agent-core.js';
 
 const TOKEN = process.env.AGENT_BOT_TOKEN;
@@ -58,92 +58,107 @@ function sumTotals(rows) {
   return t;
 }
 
-/* ADHD-friendly: the decision-driving number first (what's left today),
-   two bars max, everything secondary folded into an expandable quote. */
-function daySummary(rows, goals) {
+/* ADHD-friendly: the decision-driving number first, one idea per line,
+   blank lines between groups. Secondary data goes to one expandable at
+   the message end (dayDetailLines). */
+function dayStatus(rows, goals) {
   const day = sumTotals(rows);
   const rem = goals.calories - day.calories;
   const remLine = rem >= 0
-    ? `⚡ נותרו <b>${n(rem)}</b> קק"ל להיום`
+    ? `⚡ נותרו <b>${n(rem)}</b> קק"ל היום`
     : `🔺 חריגה של <b>${n(-rem)}</b> קק"ל היום`;
-
-  const details = [`🍚 פחמימות ${r1(day.carbs)}/${goals.carbs} ג · 🧈 שומן ${r1(day.fat)}/${goals.fat} ג`];
-  const split = estimateSplit(rows);
-  if (split) details.push(`🎯 מדויק ${split.measuredPct}% · 〰️ הערכה ${split.estimatedPct}% (מהקלוריות)`);
-
   return (
     `${remLine}\n` +
-    `🔥 <code>${bar(day.calories, goals.calories)}</code> <b>${n(day.calories)}</b>/${n(goals.calories)}\n` +
-    `🥩 <code>${bar(day.protein, goals.protein)}</code> <b>${r1(day.protein)}</b>/${goals.protein} חלבון\n` +
-    `<blockquote expandable>${details.join('\n')}</blockquote>`
+    `<code>${bar(day.calories, goals.calories)}</code>  ${n(day.calories)} / ${n(goals.calories)}\n` +
+    `🥩 חלבון  <b>${r1(day.protein)}</b> / ${goals.protein}`
   );
 }
 
+function dayDetailLines(rows, goals) {
+  const day = sumTotals(rows);
+  const lines = [`פחמימות ${r1(day.carbs)}/${goals.carbs} ג · שומן ${r1(day.fat)}/${goals.fat} ג`];
+  const split = estimateSplit(rows);
+  if (split) lines.push(`מדויק ${split.measuredPct}% · הערכה ${split.estimatedPct}% (מהקלוריות)`);
+  return lines;
+}
+
 const CONF_ICON = { high: '🎯', medium: '〰️', low: '❔' };
+const ddmm = (iso) => iso.slice(5).split('-').reverse().join('.');
 
-function rememberBlock(a) {
-  const s = a.saved || {};
-  const details = [];
-  if (s.product) details.push(`מוצר: ${esc(s.product)}`);
-  if (s.serving_grams) details.push(`מנה: ${s.serving_grams} גרם`);
-  if (s.kcal_per_100g != null) {
-    let m = `ל-100 גרם: ${s.kcal_per_100g} קק"ל`;
-    if (s.protein_per_100g != null) m += ` · חלבון ${s.protein_per_100g}`;
-    if (s.carbs_per_100g != null) m += ` · פחמ' ${s.carbs_per_100g}`;
-    if (s.fat_per_100g != null) m += ` · שומן ${s.fat_per_100g}`;
-    details.push(m);
+/* Main (always-visible) part of an action. Secondary data comes from
+   actionDetailLines and lands in the single expandable at message end. */
+function actionMain(a) {
+  if (a.kind === 'remember_food') {
+    return `🧠 <b>"${esc(a.alias)}" ${a.isNew ? 'נשמר במילון' : 'עודכן במילון'}</b>`;
   }
-  if (s.variants) {
-    details.push(`וריאציות: ${esc(Object.entries(s.variants).map(([k, v]) => `${k}=${v} גרם`).join(', '))}`);
+  if (a.kind === 'log_measurement') {
+    const s = a.saved || {};
+    const d = a.deltas || {};
+    const delta = (v) => (v == null ? '' : v.diff === 0 ? '  (ללא שינוי)' : `  (${v.diff > 0 ? '+' : ''}${v.diff} מאז ${ddmm(v.since)})`);
+    const lines = [`✅ <b>נרשמה מדידה</b> · ${ddmm(a.measuredOn)}`, ''];
+    if (s.weight_kg != null) lines.push(`משקל  <b>${s.weight_kg}</b> ק"ג${delta(d.weight_kg)}`);
+    if (s.waist_cm != null) lines.push(`מותן  <b>${s.waist_cm}</b> ס"מ${delta(d.waist_cm)}`);
+    if (a.navyPct != null) lines.push(`שומן גוף  <b>${a.navyPct}%</b>`);
+    return lines.join('\n');
   }
-  const head = a.isNew ? 'נשמר במילון' : 'המילון עודכן';
-  let out = `🧠 <b>"${esc(a.alias)}" ${head}</b>`;
-  if (details.length) out += `\n<blockquote expandable>${details.join('\n')}</blockquote>`;
-  return out;
-}
 
-function measurementBlock(a) {
-  const s = a.saved || {};
-  const d = a.deltas || {};
-  const delta = (v) => (v == null ? '' : v.diff === 0 ? '  (ללא שינוי)' : `  (${v.diff > 0 ? '+' : ''}${v.diff} מאז ${v.since.slice(5).split('-').reverse().join('.')})`);
-  const lines = [];
-  if (s.weight_kg != null) lines.push(`⚖️ משקל <b>${s.weight_kg}</b> ק"ג${delta(d.weight_kg)}`);
-  if (s.waist_cm != null) lines.push(`📏 מותן <b>${s.waist_cm}</b> ס"מ${delta(d.waist_cm)}`);
-  if (a.navyPct != null) lines.push(`🧮 שומן גוף <b>${a.navyPct}%</b> (Navy)`);
-  const details = [];
-  if (s.neck_cm != null) details.push(`צוואר: ${s.neck_cm} ס"מ`);
-  if (s.steps_avg != null) details.push(`צעדים (ממוצע): ${n(s.steps_avg)}`);
-  if (s.notes) details.push(`הערה: ${esc(s.notes)}`);
-  let out = `✅ <b>נרשמה מדידה</b> · ${a.measuredOn.slice(5).split('-').reverse().join('.')}\n${lines.join('\n')}`;
-  if (details.length) out += `\n<blockquote expandable>${details.join('\n')}</blockquote>`;
-  return out;
-}
-
-function actionBlock(a) {
-  if (a.kind === 'remember_food') return rememberBlock(a);
-  if (a.kind === 'log_measurement') return measurementBlock(a);
   const head =
     a.kind === 'log_meal' ? '✅ <b>נרשם</b>'
     : a.kind === 'delete_meal' ? '🗑 <b>נמחק</b>'
     : '✏️ <b>עודכן</b>';
   const conf = CONF_ICON[a.confidence] || '〰️';
-  const lines = a.items.map(
-    (it) => `${it.emoji || '🍽'} ${esc(it.name)} — <b>${n(it.calories)}</b>`
-  );
+  const single = a.items.length === 1;
 
-  const details = [];
+  let out;
+  if (single) {
+    const it = a.items[0];
+    out =
+      `${head} · ${esc(it.name)} ${conf}\n\n` +
+      `🔥 <b>${n(a.totals.calories)}</b> קק"ל · 🥩 <b>${r1(a.totals.protein)}</b> ג חלבון`;
+  } else {
+    out =
+      `${head} · <b>${n(a.totals.calories)}</b> קק"ל ${conf}\n\n` +
+      a.items.map((it) => `${it.emoji || '🍽'} ${esc(it.name)} — <b>${n(it.calories)}</b>`).join('\n') +
+      `\n\n🥩 <b>${r1(a.totals.protein)}</b> ג חלבון`;
+  }
+  if (a.dayKeyUsed && a.dayKeyUsed !== dayKey() && a.kind === 'log_meal') {
+    out += `\n🗓 נרשם לתאריך ${ddmm(a.dayKeyUsed)}`;
+  }
+  return out;
+}
+
+function actionDetailLines(a) {
+  if (a.kind === 'remember_food') {
+    const s = a.saved || {};
+    const lines = [];
+    if (s.product) lines.push(`מוצר: ${esc(s.product)}`);
+    if (s.serving_grams) lines.push(`מנה: ${s.serving_grams} גרם`);
+    if (s.kcal_per_100g != null) {
+      let m = `ל-100 גרם: ${s.kcal_per_100g} קק"ל`;
+      if (s.protein_per_100g != null) m += ` · חלבון ${s.protein_per_100g}`;
+      if (s.carbs_per_100g != null) m += ` · פחמ' ${s.carbs_per_100g}`;
+      if (s.fat_per_100g != null) m += ` · שומן ${s.fat_per_100g}`;
+      lines.push(m);
+    }
+    if (s.variants) lines.push(`וריאציות: ${esc(Object.entries(s.variants).map(([k, v]) => `${k}=${v} גרם`).join(', '))}`);
+    return lines;
+  }
+  if (a.kind === 'log_measurement') {
+    const s = a.saved || {};
+    const lines = [];
+    if (s.neck_cm != null) lines.push(`צוואר: ${s.neck_cm} ס"מ`);
+    if (s.steps_avg != null) lines.push(`צעדים (ממוצע): ${n(s.steps_avg)}`);
+    if (s.notes) lines.push(`הערה: ${esc(s.notes)}`);
+    return lines;
+  }
+  const lines = [];
   const portions = a.items
     .map((it) => `${esc(it.name)}: ${esc(it.portion || `${it.grams} גרם`)}`)
     .join(' · ');
-  if (portions) details.push(`⚖️ ${portions}`);
-  details.push(`🥩 חלבון ${r1(a.totals.protein)} ג · 🍚 פחמ' ${r1(a.totals.carbs)} ג · 🧈 שומן ${r1(a.totals.fat)} ג`);
-  if (a.assumptions) details.push(`ℹ️ ${esc(a.assumptions)}`);
-
-  return (
-    `${head} · <b>${n(a.totals.calories)}</b> קק"ל ${conf}\n` +
-    lines.join('\n') +
-    `\n<blockquote expandable>${details.join('\n')}</blockquote>`
-  );
+  if (portions) lines.push(`כמויות — ${portions}`);
+  lines.push(`בארוחה: פחמימות ${r1(a.totals.carbs)} ג · שומן ${r1(a.totals.fat)} ג · סיבים ${r1(a.totals.fiber)} ג`);
+  if (a.assumptions) lines.push(`הנחות: ${esc(a.assumptions)}`);
+  return lines;
 }
 
 /* ---------------- entry point ---------------- */
@@ -275,15 +290,17 @@ async function processWithAgent(chatId, userContent, rawText) {
   ]);
   const goals = goalsRow.data || { calories: 2000, protein: 130, carbs: 200, fat: 65 };
 
-  const blocks = actions.map(actionBlock);
-  let body = blocks.join('\n\n');
-  // The model's one-liner usually repeats what the block already shows — keep it
-  // only when it's the sole content (e.g. a remember confirmation with a comment).
-  if (agentText && agentText.length <= 160) body += `\n💬 <i>${esc(agentText)}</i>`;
-  // Day summary only when a meal was written — a dictionary-only action doesn't need it.
-  if (actions.some((a) => a.kind === 'log_meal' || a.kind === 'update_meal' || a.kind === 'delete_meal')) {
-    body += `\n\n${daySummary(rows, goals)}`;
-  }
+  let body = actions.map(actionMain).join('\n\n');
+  const mealWrite = actions.some((a) => a.kind === 'log_meal' || a.kind === 'update_meal' || a.kind === 'delete_meal');
+  if (mealWrite) body += `\n\n${dayStatus(rows, goals)}`;
+  if (agentText && agentText.length <= 200) body += `\n\n💬 <i>${esc(agentText)}</i>`;
+
+  // One expandable at the end for everything secondary.
+  const details = [
+    ...actions.flatMap(actionDetailLines),
+    ...(mealWrite ? dayDetailLines(rows, goals) : []),
+  ];
+  if (details.length) body += `\n<blockquote expandable>${details.join('\n')}</blockquote>`;
 
   const undoRow = actions.map((a, i) => ({
     text: actions.length > 1 ? `↩️ בטל ${i + 1}` : '↩️ בטל',
