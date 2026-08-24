@@ -767,3 +767,38 @@ describe('/dashboard', () => {
     assert.equal(db.rows('dash_sessions')[0].verified, false);
   });
 });
+
+/* ============ dictionary quality ============ */
+
+describe('/foods and dictionary completeness', () => {
+  test('separates complete entries from ones missing macros', async () => {
+    db.insert('my_foods', [
+      { id: 1, chat_id: CHAT, alias: 'קוטג\'', serving_grams: 250, kcal_per_100g: 121 },
+      { id: 2, chat_id: CHAT, alias: 'לחמניה', serving_grams: 90 },
+    ]);
+    await post(handler, textUpdate('/foods'));
+
+    const t = lastText();
+    assert.match(t, /מלאים/);
+    assert.match(t, /חסרים ערכים/);
+    assert.ok(t.indexOf('קוטג') < t.indexOf('חסרים ערכים'), 'complete entries listed first');
+  });
+
+  test('an empty dictionary explains how to fill it', async () => {
+    await post(handler, textUpdate('/foods'));
+    assert.match(lastText(), /ריק/);
+  });
+
+  test('incomplete entries are flagged to the model in context', async () => {
+    db.insert('my_foods', [
+      { id: 1, chat_id: CHAT, alias: 'לחמניה', serving_grams: 90 },
+      { id: 2, chat_id: CHAT, alias: 'קוטג\'', serving_grams: 250, kcal_per_100g: 121 },
+    ]);
+    scriptClaude(say('ok'));
+    await post(handler, textUpdate('שאלה'));
+
+    const system = claudeCalls[0].system;
+    assert.match(system, /"לחמניה" ⚠️חסרים ערכים/);
+    assert.doesNotMatch(system, /"קוטג'" ⚠️/);
+  });
+});

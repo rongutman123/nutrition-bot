@@ -249,6 +249,7 @@ async function onMessage(msg) {
 
   if (text === '/export' || text === 'ייצוא') return cmdExport(chatId);
   if (text === '/dashboard' || text === 'דשבורד') return cmdDashboard(chatId);
+  if (text === '/foods' || text === 'המילון שלי') return cmdFoods(chatId);
 
   if (text === '/start') {
     return send(
@@ -328,6 +329,41 @@ async function processWithAgent(chatId, userContent, rawText) {
   }));
 
   return send(chatId, body, { reply_markup: { inline_keyboard: [undoRow] } });
+}
+
+/* ---------------- personal dictionary listing ---------------- */
+
+async function cmdFoods(chatId) {
+  const { data: foods } = await sb
+    .from('my_foods').select('*').eq('chat_id', chatId).order('alias');
+
+  if (!foods?.length) {
+    return send(
+      chatId,
+      '🧠 <b>המילון שלך ריק</b>\n\nכל תיקון שתעשה נשמר אוטומטית. אפשר גם לומר לי ישירות:\n<i>"זכור שלחמניה היא 90 גרם"</i>'
+    );
+  }
+
+  const done = foods.filter((f) => f.kcal_per_100g != null);
+  const partial = foods.filter((f) => f.kcal_per_100g == null);
+
+  const line = (f) => {
+    let s = `• <b>${esc(f.alias)}</b>`;
+    if (f.serving_grams) s += ` · ${f.serving_grams} ג`;
+    if (f.kcal_per_100g != null) s += ` · ${f.kcal_per_100g} קק"ל/100`;
+    return s;
+  };
+
+  let body = `🧠 <b>המילון שלי</b> · ${foods.length} מאכלים\n`;
+  if (done.length) body += `\n✅ <b>מלאים</b>\n${done.map(line).join('\n')}\n`;
+  if (partial.length) {
+    body +=
+      `\n⚠️ <b>חסרים ערכים תזונתיים</b> (${partial.length})\n` +
+      `${partial.map(line).join('\n')}\n` +
+      `\n<i>לאלה אני יודע את הכמות אבל מנחש את הקלוריות. שלח לי תמונת תווית או תגיד לי את הערכים — למשל "לחמניה: 280 קלוריות ל-100 גרם" — ומאותו רגע זו מדידה ולא הערכה.</i>`;
+  }
+
+  return send(chatId, body);
 }
 
 /* ---------------- dashboard access ---------------- */
