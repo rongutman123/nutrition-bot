@@ -4,7 +4,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { lastDayKeys, getMealsRange } from '../lib/db.js';
-import { getContext, runAgent, undoAction, estimateSplit, getDay } from '../lib/agent-core.js';
+import { getContext, runAgent, undoAction, estimateSplit, getDay, logChatTurn } from '../lib/agent-core.js';
 
 const TOKEN = process.env.AGENT_BOT_TOKEN;
 const API = `https://api.telegram.org/bot${TOKEN}`;
@@ -250,6 +250,18 @@ async function processWithAgent(chatId, userContent, rawText) {
   }
 
   const { actions, text: agentText } = result;
+
+  // Rolling conversation log — lets the next message continue this exchange.
+  const actionSummary = actions.map((a) =>
+    a.kind === 'log_meal' ? `נרשם: ${(a.items || []).map((i) => i.name).join(', ')} (${Math.round(a.totals.calories)} קק"ל)`
+    : a.kind === 'update_meal' ? `עודכן: ${(a.items || []).map((i) => i.name).join(', ')} (${Math.round(a.totals.calories)} קק"ל)`
+    : a.kind === 'delete_meal' ? `נמחק: ${(a.items || []).map((i) => i.name).join(', ')}`
+    : a.kind === 'remember_food' ? `נשמר במילון: ${a.alias}`
+    : a.kind === 'log_measurement' ? `נרשמה מדידה ${a.measuredOn}`
+    : a.kind
+  ).join(' · ');
+  await logChatTurn(chatId, 'user', rawText);
+  await logChatTurn(chatId, 'assistant', [actionSummary, agentText].filter(Boolean).join(' · '));
 
   // No write — plain answer / clarification question
   if (!actions.length) {
