@@ -77,7 +77,27 @@ function daySummary(rows, goals) {
 
 const CONF_ICON = { high: '🎯 דיוק גבוה', medium: '〰️ הערכה', low: '❔ הערכה גסה' };
 
+function rememberBlock(a) {
+  const s = a.saved || {};
+  const lines = [];
+  if (s.product) lines.push(`   מוצר: ${esc(s.product)}`);
+  if (s.serving_grams) lines.push(`   מנה: ${s.serving_grams} גרם`);
+  if (s.kcal_per_100g != null) {
+    let m = `   ל-100 גרם: ${s.kcal_per_100g} קק"ל`;
+    if (s.protein_per_100g != null) m += ` · חלבון ${s.protein_per_100g}`;
+    if (s.carbs_per_100g != null) m += ` · פחמ' ${s.carbs_per_100g}`;
+    if (s.fat_per_100g != null) m += ` · שומן ${s.fat_per_100g}`;
+    lines.push(m);
+  }
+  if (s.variants) {
+    lines.push(`   וריאציות: ${esc(Object.entries(s.variants).map(([k, v]) => `${k}=${v} גרם`).join(', '))}`);
+  }
+  const head = a.isNew ? '🧠 <b>נשמר במילון</b>' : '🧠 <b>המילון עודכן</b>';
+  return `${head}  ·  "${esc(a.alias)}"\n${RULE}\n${lines.join('\n') || '   (עודכן)'}`;
+}
+
 function actionBlock(a) {
+  if (a.kind === 'remember_food') return rememberBlock(a);
   const head = a.kind === 'log_meal' ? '✅ <b>נוסף ליומן</b>' : '✏️ <b>הרישום עודכן</b>';
   const conf = CONF_ICON[a.confidence] || '〰️ הערכה';
   const lines = a.items.map(
@@ -139,6 +159,7 @@ async function onMessage(msg) {
         '• <i>"חזה עוף 200 גרם עם אורז"</i> — רישום\n' +
         '• <i>"הלחמנייה הייתה 90 גרם"</i> — תיקון\n' +
         '• <i>"אכלתי בצהריים טונה ושכחתי לרשום"</i> — רישום לאחור\n' +
+        '• <i>"זכור שכף אבקת חלבון היא 33 גרם"</i> — המילון האישי\n' +
         '• <i>"כמה חלבון אכלתי היום?"</i> — שאלה\n\n' +
         'כל רישום מגיע עם כפתור <b>בטל</b> — טעות מתקנים בלחיצה.'
     );
@@ -172,7 +193,10 @@ async function onMessage(msg) {
   const blocks = actions.map(actionBlock);
   let body = blocks.join(`\n\n${RULE}\n`);
   if (agentText) body += `\n\n💬 <i>${esc(agentText)}</i>`;
-  body += `\n\n${RULE}\n${daySummary(rows, goals)}`;
+  // Day summary only when a meal was written — a dictionary-only action doesn't need it.
+  if (actions.some((a) => a.kind === 'log_meal' || a.kind === 'update_meal')) {
+    body += `\n\n${RULE}\n${daySummary(rows, goals)}`;
+  }
 
   const undoRow = actions.map((a, i) => ({
     text: actions.length > 1 ? `↩️ בטל ${i + 1}` : '↩️ בטל',
@@ -209,7 +233,10 @@ async function onCallback(cb) {
   ]);
   const goals = goalsRow.data || { calories: 2000, protein: 130, carbs: 200, fat: 65 };
   const day = sumTotals(rows);
-  const verb = result.kind === 'log_meal' ? 'הרישום נמחק' : 'העדכון שוחזר';
+  const verb =
+    result.kind === 'log_meal' ? 'הרישום נמחק'
+    : result.kind === 'remember_food' ? 'המילון שוחזר'
+    : 'העדכון שוחזר';
 
   await tg('editMessageText', {
     chat_id: chatId,
