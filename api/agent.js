@@ -98,7 +98,10 @@ function rememberBlock(a) {
 
 function actionBlock(a) {
   if (a.kind === 'remember_food') return rememberBlock(a);
-  const head = a.kind === 'log_meal' ? '✅ <b>נוסף ליומן</b>' : '✏️ <b>הרישום עודכן</b>';
+  const head =
+    a.kind === 'log_meal' ? '✅ <b>נוסף ליומן</b>'
+    : a.kind === 'delete_meal' ? '🗑 <b>נמחק מהיומן</b>'
+    : '✏️ <b>הרישום עודכן</b>';
   const conf = CONF_ICON[a.confidence] || '〰️ הערכה';
   const lines = a.items.map(
     (it) => `   • ${esc(it.name)} — <b>${n(it.calories)}</b> קק"ל  <i>(${esc(it.portion || `${it.grams} גרם`)})</i>`
@@ -229,7 +232,7 @@ async function processWithAgent(chatId, userContent, rawText) {
   let body = blocks.join(`\n\n${RULE}\n`);
   if (agentText) body += `\n\n💬 <i>${esc(agentText)}</i>`;
   // Day summary only when a meal was written — a dictionary-only action doesn't need it.
-  if (actions.some((a) => a.kind === 'log_meal' || a.kind === 'update_meal')) {
+  if (actions.some((a) => a.kind === 'log_meal' || a.kind === 'update_meal' || a.kind === 'delete_meal')) {
     body += `\n\n${RULE}\n${daySummary(rows, goals)}`;
   }
 
@@ -270,6 +273,7 @@ async function onCallback(cb) {
   const day = sumTotals(rows);
   const verb =
     result.kind === 'log_meal' ? 'הרישום נמחק'
+    : result.kind === 'delete_meal' ? 'הרישום שוחזר'
     : result.kind === 'remember_food' ? 'המילון שוחזר'
     : 'העדכון שוחזר';
 
