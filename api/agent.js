@@ -154,7 +154,10 @@ function actionDetailLines(a) {
   }
   const lines = [];
   const portions = a.items
-    .map((it) => `${esc(it.name)}: ${esc(it.portion || `${it.grams} גרם`)}`)
+    .map((it) => {
+      const q = it.portion || (Number.isFinite(Number(it.grams)) ? `${it.grams} גרם` : null);
+      return q ? `${esc(it.name)}: ${esc(q)}` : esc(it.name);
+    })
     .join(' · ');
   if (portions) lines.push(`כמויות — ${portions}`);
   lines.push(`סיבים ${r1(a.totals.fiber)} ג · סוכר ${r1(a.totals.sugar)} ג · נתרן ${n(a.totals.sodium_mg)} מ"ג`);
