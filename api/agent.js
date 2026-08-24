@@ -67,16 +67,17 @@ function dayStatus(rows, goals) {
   const remLine = rem >= 0
     ? `⚡ נותרו <b>${n(rem)}</b> קק"ל היום`
     : `🔺 חריגה של <b>${n(-rem)}</b> קק"ל היום`;
+  // "X מתוך Y" ולא "X / Y" — לוכסן בין מספרים מתהפך ויזואלית ב-RTL.
   return (
     `${remLine}\n` +
-    `<code>${bar(day.calories, goals.calories)}</code>  ${n(day.calories)} / ${n(goals.calories)}\n` +
-    `🥩 חלבון  <b>${r1(day.protein)}</b> / ${goals.protein}`
+    `<code>${bar(day.calories, goals.calories)}</code>  ${n(day.calories)} מתוך ${n(goals.calories)}\n` +
+    `🥩 חלבון  <b>${r1(day.protein)}</b> מתוך ${goals.protein}`
   );
 }
 
 function dayDetailLines(rows, goals) {
   const day = sumTotals(rows);
-  const lines = [`פחמימות ${r1(day.carbs)}/${goals.carbs} ג · שומן ${r1(day.fat)}/${goals.fat} ג`];
+  const lines = [`פחמימות ${r1(day.carbs)} מתוך ${goals.carbs} ג · שומן ${r1(day.fat)} מתוך ${goals.fat} ג`];
   const split = estimateSplit(rows);
   if (split) lines.push(`מדויק ${split.measuredPct}% · הערכה ${split.estimatedPct}% (מהקלוריות)`);
   return lines;
@@ -293,7 +294,8 @@ async function processWithAgent(chatId, userContent, rawText) {
   let body = actions.map(actionMain).join('\n\n');
   const mealWrite = actions.some((a) => a.kind === 'log_meal' || a.kind === 'update_meal' || a.kind === 'delete_meal');
   if (mealWrite) body += `\n\n${dayStatus(rows, goals)}`;
-  if (agentText && agentText.length <= 200) body += `\n\n💬 <i>${esc(agentText)}</i>`;
+  // Drop trivial echoes ("נרשם 👍") — show only comments that add information.
+  if (agentText && agentText.length >= 25 && agentText.length <= 200) body += `\n\n💬 <i>${esc(agentText)}</i>`;
 
   // One expandable at the end for everything secondary.
   const details = [
@@ -403,6 +405,6 @@ async function onCallback(cb) {
     parse_mode: 'HTML',
     text:
       `↩️ <b>בוטל</b> — ${verb}.\n\n` +
-      `<b>היום:</b> ${n(day.calories)} / ${n(goals.calories)} קק"ל · חלבון ${r1(day.protein)} ג`,
+      `<b>היום:</b> ${n(day.calories)} מתוך ${n(goals.calories)} קק"ל · חלבון ${r1(day.protein)} ג`,
   });
 }
