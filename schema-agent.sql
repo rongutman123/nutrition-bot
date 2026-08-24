@@ -72,3 +72,16 @@ on conflict (chat_id, measured_on) do nothing;
 select 'my_foods' as t, count(*) from my_foods
 union all
 select 'measurements', count(*) from measurements;
+
+-- ============================================================
+-- Phase 1b — undo journal for agent write actions
+-- ============================================================
+create table if not exists agent_actions (
+  id bigserial primary key,
+  chat_id bigint not null,
+  kind text not null,             -- 'log_meal' | 'update_meal' | ...
+  payload jsonb not null,         -- what's needed to revert
+  undone boolean default false,
+  created_at timestamptz default now()
+);
+alter table agent_actions enable row level security;
