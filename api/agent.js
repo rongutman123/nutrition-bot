@@ -137,14 +137,45 @@ export default async function handler(req, res) {
 
 /* ---------------- routing ---------------- */
 
+async function downloadPhotoBase64(fileId) {
+  const info = await tg('getFile', { file_id: fileId });
+  const path = info?.result?.file_path;
+  if (!path) throw new Error('no file_path from telegram');
+  const res = await fetch(`https://api.telegram.org/file/bot${TOKEN}/${path}`);
+  if (!res.ok) throw new Error(`file download ${res.status}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  return {
+    base64: buf.toString('base64'),
+    mediaType: path.endsWith('.png') ? 'image/png' : 'image/jpeg',
+  };
+}
+
 async function onMessage(msg) {
   const chatId = msg.chat.id;
 
   if (msg.voice || msg.audio) {
     return send(chatId, 'קול עוד לא נתמך — כתוב לי בטקסט 🙂');
   }
+
+  // What goes into the agent: plain text, or image block + text hint for photos.
+  let userContent, rawText;
+
   if (msg.photo) {
-    return send(chatId, '📷 תמונות נכנסות בפיצ׳ר הבא. בינתיים תאר לי במילים מה אכלת.');
+    await tg('sendChatAction', { chat_id: chatId, action: 'typing' });
+    let img;
+    try {
+      img = await downloadPhotoBase64(msg.photo[msg.photo.length - 1].file_id);
+    } catch (err) {
+      console.error('photo download error:', err);
+      return send(chatId, 'לא הצלחתי להוריד את התמונה. נסה לשלוח אותה שוב.');
+    }
+    const caption = (msg.caption || '').trim();
+    userContent = [
+      { type: 'image', source: { type: 'base64', media_type: img.mediaType, data: img.base64 } },
+      { type: 'text', text: caption ? `רמז מהמשתמש: ${caption}` : 'נתח את התמונה. אם זה אוכל — רשום את הארוחה.' },
+    ];
+    rawText = caption || '📷 תמונה';
+    return processWithAgent(chatId, userContent, rawText);
   }
 
   const text = (msg.text || '').trim();
@@ -166,11 +197,15 @@ async function onMessage(msg) {
   }
 
   await tg('sendChatAction', { chat_id: chatId, action: 'typing' });
+  return processWithAgent(chatId, text, text);
+}
 
+/* Shared agent flow for text and photos: run, then confirm/answer. */
+async function processWithAgent(chatId, userContent, rawText) {
   let result;
   try {
     const ctx = await getContext(chatId);
-    result = await runAgent(chatId, text, ctx);
+    result = await runAgent(chatId, userContent, ctx, rawText);
   } catch (err) {
     console.error('agent error:', err);
     return send(chatId, 'לא הצלחתי לעבד את זה כרגע 😕 נסה לשלוח שוב.');
