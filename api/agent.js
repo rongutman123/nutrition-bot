@@ -3,6 +3,7 @@
 // Every write action replies with what was done + an inline undo button.
 
 import { createClient } from '@supabase/supabase-js';
+import { lastDayKeys, getMealsRange } from '../lib/db.js';
 import { getContext, runAgent, undoAction, estimateSplit, getDay } from '../lib/agent-core.js';
 
 const TOKEN = process.env.AGENT_BOT_TOKEN;
@@ -96,8 +97,23 @@ function rememberBlock(a) {
   return `${head}  ·  "${esc(a.alias)}"\n${RULE}\n${lines.join('\n') || '   (עודכן)'}`;
 }
 
+function measurementBlock(a) {
+  const s = a.saved || {};
+  const d = a.deltas || {};
+  const delta = (v) => (v == null ? '' : v.diff === 0 ? '  (ללא שינוי)' : `  (${v.diff > 0 ? '+' : ''}${v.diff} מאז ${v.since.slice(5).split('-').reverse().join('.')})`);
+  const lines = [];
+  if (s.weight_kg != null) lines.push(`   משקל: <b>${s.weight_kg}</b> ק"ג${delta(d.weight_kg)}`);
+  if (s.waist_cm != null) lines.push(`   מותן: <b>${s.waist_cm}</b> ס"מ${delta(d.waist_cm)}`);
+  if (s.neck_cm != null) lines.push(`   צוואר: ${s.neck_cm} ס"מ`);
+  if (s.steps_avg != null) lines.push(`   צעדים (ממוצע): ${n(s.steps_avg)}`);
+  if (a.navyPct != null) lines.push(`   🧮 שומן גוף (Navy): <b>${a.navyPct}%</b>`);
+  if (s.notes) lines.push(`   הערה: ${esc(s.notes)}`);
+  return `⚖️ <b>נרשמה מדידה</b>  ·  ${a.measuredOn}\n${RULE}\n${lines.join('\n')}`;
+}
+
 function actionBlock(a) {
   if (a.kind === 'remember_food') return rememberBlock(a);
+  if (a.kind === 'log_measurement') return measurementBlock(a);
   const head =
     a.kind === 'log_meal' ? '✅ <b>נוסף ליומן</b>'
     : a.kind === 'delete_meal' ? '🗑 <b>נמחק מהיומן</b>'
@@ -184,6 +200,8 @@ async function onMessage(msg) {
   const text = (msg.text || '').trim();
   if (!text) return;
 
+  if (text === '/export' || text === 'ייצוא') return cmdExport(chatId);
+
   if (text === '/start') {
     return send(
       chatId,
@@ -194,7 +212,9 @@ async function onMessage(msg) {
         '• <i>"הלחמנייה הייתה 90 גרם"</i> — תיקון\n' +
         '• <i>"אכלתי בצהריים טונה ושכחתי לרשום"</i> — רישום לאחור\n' +
         '• <i>"זכור שכף אבקת חלבון היא 33 גרם"</i> — המילון האישי\n' +
-        '• <i>"כמה חלבון אכלתי היום?"</i> — שאלה\n\n' +
+        '• <i>"נשקלתי 95.8, מותן 105"</i> — מדידות + אחוז שומן\n' +
+        '• <i>"כמה חלבון אכלתי היום?"</i> — שאלה (גם על ימים קודמים)\n' +
+        '• /export — ייצוא נתונים לניתוח\n\n' +
         'כל רישום מגיע עם כפתור <b>בטל</b> — טעות מתקנים בלחיצה.'
     );
   }
@@ -244,6 +264,59 @@ async function processWithAgent(chatId, userContent, rawText) {
   return send(chatId, body, { reply_markup: { inline_keyboard: [undoRow] } });
 }
 
+/* ---------------- export (paste-ready block for analysis) ---------------- */
+
+async function cmdExport(chatId) {
+  const keys = lastDayKeys(30);
+  const [meas, foods, goalsRow, meals] = await Promise.all([
+    sb.from('measurements').select('*').eq('chat_id', chatId).order('measured_on', { ascending: true }),
+    sb.from('my_foods').select('*').eq('chat_id', chatId).order('alias'),
+    sb.from('goals').select('*').eq('chat_id', chatId).maybeSingle(),
+    getMealsRange(chatId, keys),
+  ]);
+  const g = goalsRow.data || { calories: 2000, protein: 130, carbs: 200, fat: 65 };
+
+  const lines = [];
+  lines.push(`EXPORT ${new Date().toISOString().slice(0, 10)}`);
+  lines.push(`GOALS: ${g.calories} kcal / P${g.protein} / C${g.carbs} / F${g.fat}`);
+
+  lines.push('', 'MEASUREMENTS (date | weight kg | waist cm | neck cm | steps):');
+  for (const m of meas.data || []) {
+    lines.push(`${m.measured_on} | ${m.weight_kg ?? '-'} | ${m.waist_cm ?? '-'} | ${m.neck_cm ?? '-'} | ${m.steps_avg ?? '-'}${m.notes ? ` | ${m.notes}` : ''}`);
+  }
+
+  lines.push('', 'DAYS last 30 (date | kcal | P | C | F | meals | %measured):');
+  const byDay = new Map();
+  for (const r of meals) {
+    if (!byDay.has(r.day_key)) byDay.set(r.day_key, []);
+    byDay.get(r.day_key).push(r);
+  }
+  for (const k of keys) {
+    const rows = byDay.get(k);
+    if (!rows) continue;
+    const t = { calories: 0, protein: 0, carbs: 0, fat: 0 };
+    for (const r of rows) for (const f of Object.keys(t)) t[f] += Number(r.totals?.[f]) || 0;
+    const split = estimateSplit(rows);
+    lines.push(`${k} | ${Math.round(t.calories)} | ${Math.round(t.protein)} | ${Math.round(t.carbs)} | ${Math.round(t.fat)} | ${rows.length} | ${split ? split.measuredPct + '%' : '-'}`);
+  }
+
+  lines.push('', 'MY_FOODS:');
+  for (const f of foods.data || []) {
+    let s = `${f.alias}`;
+    if (f.product) s += ` = ${f.product}`;
+    if (f.serving_grams) s += ` | serving ${f.serving_grams}g`;
+    if (f.kcal_per_100g != null) s += ` | per100g: ${f.kcal_per_100g}kcal P${f.protein_per_100g ?? '-'} C${f.carbs_per_100g ?? '-'} F${f.fat_per_100g ?? '-'}`;
+    if (f.variants) s += ` | variants ${JSON.stringify(f.variants)}`;
+    lines.push(s);
+  }
+
+  const block = lines.join('\n');
+  // Telegram hard limit is 4096 chars per message — split if needed.
+  for (let i = 0; i < block.length; i += 3800) {
+    await send(chatId, `<pre>${esc(block.slice(i, i + 3800))}</pre>`);
+  }
+}
+
 /* ---------------- undo callback ---------------- */
 
 async function onCallback(cb) {
@@ -275,6 +348,7 @@ async function onCallback(cb) {
     result.kind === 'log_meal' ? 'הרישום נמחק'
     : result.kind === 'delete_meal' ? 'הרישום שוחזר'
     : result.kind === 'remember_food' ? 'המילון שוחזר'
+    : result.kind === 'log_measurement' ? 'המדידה שוחזרה'
     : 'העדכון שוחזר';
 
   await tg('editMessageText', {
