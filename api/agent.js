@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { dayKey, lastDayKeys, getMealsRange, createDashSession } from '../lib/db.js';
 import { getContext, runAgent, undoAction, estimateSplit, getDay, logChatTurn } from '../lib/agent-core.js';
-import { caloriesChart, proteinChart, weightChart, accuracyChart, renderChart } from '../lib/charts.js';
+import { caloriesChart, proteinChart, weightChart, accuracyChart, renderChart, isOver } from '../lib/charts.js';
 
 const TOKEN = process.env.AGENT_BOT_TOKEN;
 const API = `https://api.telegram.org/bot${TOKEN}`;
@@ -537,12 +537,13 @@ async function cmdToday(chatId) {
 
 /* ---------------- trend charts ---------------- */
 
-async function sendChartPhoto(chatId, png, caption) {
+async function sendChartPhoto(chatId, png, caption, markup) {
   const form = new FormData();
   form.append('chat_id', String(chatId));
   form.append('caption', caption);
   form.append('parse_mode', 'HTML');
   form.append('photo', new Blob([png], { type: 'image/png' }), 'chart.png');
+  if (markup) form.append('reply_markup', JSON.stringify(markup));
   const res = await fetch(`${API}/sendPhoto`, { method: 'POST', body: form });
   const data = await res.json();
   if (!data.ok) console.error('sendPhoto error:', data);
@@ -603,29 +604,63 @@ async function sendTrend(chatId, metric = 'calories', nDays = 30) {
     const label = RANGE_LABEL(nDays);
     const avg = (f) => Math.round(days.reduce((s, d) => s + d[f], 0) / days.length);
 
+    // Captions lead with the average against the goal — a single day is noise,
+    // the average is the thing that actually moves the scale.
+    const gap = (avgVal, goal, unit) => {
+      const d = avgVal - goal;
+      if (d === 0) return 'בול על היעד';
+      return `<b>${d > 0 ? '+' : ''}${n(d)}</b> ${unit} ${d > 0 ? 'מעל' : 'מתחת ל'}יעד ${n(goal)}`;
+    };
+
     if (metric === 'protein') {
       chart = proteinChart(days, goals.protein, label);
-      const hit = days.filter((d) => d.protein >= goals.protein).length;
-      caption = `🥩 ממוצע <b>${avg('protein')}</b> ג · הגעת ליעד ב-<b>${hit}</b> מתוך ${days.length} ימים`;
+      const hit = days.filter((d) => d.protein >= goals.protein * 0.9).length;
+      caption =
+        `🥩 ממוצע <b>${avg('protein')}</b> ג ליום\n` +
+        `🎯 ${gap(avg('protein'), goals.protein, 'ג')}\n\n` +
+        `<i>${hit} מתוך ${days.length} ימים קרובים ליעד</i>`;
     } else if (metric === 'accuracy') {
       chart = accuracyChart(days, label);
-      caption = `🎯 ממוצע דיוק <b>${avg('measuredPct')}%</b> · ככל שהמילון גדל המספר עולה`;
+      caption =
+        `🎯 ממוצע דיוק <b>${avg('measuredPct')}%</b>\n\n` +
+        `<i>ככל שהמילון האישי גדל, החלק המשוער קטן</i>`;
     } else {
       chart = caloriesChart(days, goals.calories, label);
-      const over = days.filter((d) => d.calories > goals.calories).length;
-      caption = `🔥 ממוצע <b>${n(avg('calories'))}</b> קק"ל · חריגה ב-<b>${over}</b> מתוך ${days.length} ימים`;
+      const over = days.filter((d) => isOver(d.calories, goals.calories)).length;
+      caption =
+        `🔥 ממוצע <b>${n(avg('calories'))}</b> קק"ל ליום\n` +
+        `🎯 ${gap(avg('calories'), goals.calories, 'קק"ל')}\n\n` +
+        `<i>${over} ימים חרגו ביותר מ-10%, מתוך ${days.length}</i>`;
     }
   }
 
   const png = await renderChart(chart);
   if (!png) return send(chatId, 'לא הצלחתי לייצר את הגרף כרגע 😕 נסה שוב בעוד רגע.');
-  return sendChartPhoto(chatId, png, caption);
+  return sendChartPhoto(chatId, png, caption, otherCharts(metric));
 }
 
-/* The 📊 button: calories first — the number that drives decisions. */
+const CHART_MENU = [
+  ['calories', '🔥 קלוריות'],
+  ['protein', '🥩 חלבון'],
+  ['weight', '⚖️ משקל והיקף'],
+  ['accuracy', '🎯 איכות הנתונים'],
+];
+
+/* The 📊 button opens a menu rather than guessing which view is wanted. */
 async function cmdTrends(chatId) {
-  return sendTrend(chatId, 'calories', 30);
+  const rows = [];
+  for (let i = 0; i < CHART_MENU.length; i += 2) {
+    rows.push(CHART_MENU.slice(i, i + 2).map(([k, label]) => ({ text: label, callback_data: 'chart:' + k })));
+  }
+  return send(chatId, '📊 <b>מה להציג?</b>', { reply_markup: { inline_keyboard: rows } });
 }
+
+/* Under every chart: one tap to any other view. */
+const otherCharts = (current) => ({
+  inline_keyboard: [
+    CHART_MENU.filter(([k]) => k !== current).map(([k, label]) => ({ text: label, callback_data: 'chart:' + k })),
+  ],
+});
 
 /* ---------------- dashboard access ---------------- */
 
@@ -715,6 +750,13 @@ async function onCallback(cb) {
   const ack = (text) => tg('answerCallbackQuery', { callback_query_id: cb.id, ...(text && { text }) });
 
   if (!chatId) return ack();
+
+  // Chart menu selection
+  if (data.startsWith('chart:')) {
+    const metric = data.slice(6);
+    await ack('מכין…');
+    return sendTrend(chatId, metric, 30);
+  }
 
   // One-tap log from the /saved menu
   if (data.startsWith('logsaved:')) {

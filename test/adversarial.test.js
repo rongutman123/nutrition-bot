@@ -8,7 +8,7 @@ import {
   say, useTool, useTools,
   post, textUpdate, callbackUpdate,
   resetAll, db, lastMessage, lastText, undoIdFrom,
-  seedGoals, seedMeal, todayKey, tgFailOnce,
+  seedGoals, seedMeal, todayKey, tgFailOnce, failQuickChart,
 } from './harness.js';
 
 const { default: handler } = await import('../api/agent.js');
@@ -301,5 +301,41 @@ describe('formatting of model-authored answers', () => {
     const sys = claudeCalls[0].system;
     assert.match(sys, /רעיון אחד בשורה/);
     assert.match(sys, /blockquote expandable/);
+  });
+});
+
+describe('trend charts', () => {
+  test('the trends button opens a menu instead of guessing a view', async () => {
+    await post(handler, textUpdate('📊 מגמות'));
+
+    const buttons = lastMessage().reply_markup.inline_keyboard.flat();
+    assert.equal(buttons.length, 4);
+    assert.ok(buttons.some((b) => b.callback_data === 'chart:calories'));
+    assert.ok(buttons.some((b) => b.callback_data === 'chart:weight'));
+    assert.equal(claudeCalls.length, 0, 'a tap costs no API call');
+  });
+
+  test('picking a metric renders a photo with switch buttons for the others', async () => {
+    seedMeal(CHAT, { items: [ITEM({ calories: 2000 })] });
+    await post(handler, callbackUpdate('chart:calories'));
+
+    const photo = tgCalls.filter((c) => c.method === 'sendPhoto').at(-1);
+    assert.ok(photo, 'a photo was sent');
+    const markup = JSON.parse(photo.body.reply_markup);
+    const keys = markup.inline_keyboard.flat().map((b) => b.callback_data);
+    assert.equal(keys.length, 3);
+    assert.ok(!keys.includes('chart:calories'), 'current view is not repeated');
+  });
+
+  test('weight chart explains itself when there are no measurements', async () => {
+    await post(handler, callbackUpdate('chart:weight'));
+    assert.match(lastText(), /אין עדיין מדידות/);
+  });
+
+  test('a chart service outage degrades to a message, not silence', async () => {
+    failQuickChart();
+    seedMeal(CHAT, { items: [ITEM({ calories: 500 })] });
+    await post(handler, callbackUpdate('chart:calories'));
+    assert.match(lastText(), /לא הצלחתי לייצר את הגרף/);
   });
 });

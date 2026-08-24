@@ -31,6 +31,10 @@ export function setCkan(cfg) { ckan = cfg; }
 let tgFailures = new Set();
 export function tgFailOnce(method) { tgFailures.add(method); }
 
+// QuickChart — returns a tiny PNG by default; failQuickChart() simulates an outage.
+let chartFails = false;
+export function failQuickChart() { chartFails = true; }
+
 export function scriptClaude(...responses) { claudeQueue.push(...responses); }
 export function failAnthropic(status = 500, body = 'boom') { anthropicFailure = { status, body }; }
 
@@ -64,6 +68,13 @@ globalThis.fetch = async (url, init = {}) => {
     return new Response(Buffer.from('fake-image-bytes'), { status: 200 });
   }
 
+  if (u.startsWith('https://quickchart.io/')) {
+    if (chartFails) return new Response('down', { status: 503 });
+    return new Response(Buffer.from('89504e470d0a1a0a', 'hex'), {
+      status: 200, headers: { 'content-type': 'image/png' },
+    });
+  }
+
   if (u.startsWith('https://data.gov.il/api/3/action/datastore_search')) {
     ckanCalls.push(u);
     if (!ckan || ckan.fail) return new Response('upstream error', { status: 502 });
@@ -93,7 +104,15 @@ globalThis.fetch = async (url, init = {}) => {
 
   if (u.startsWith('https://api.telegram.org/')) {
     const method = u.split('/').pop();
-    const body = init.body ? JSON.parse(init.body) : {};
+    // sendPhoto posts multipart, everything else posts JSON.
+    let body = {};
+    if (init.body instanceof FormData) {
+      for (const [k, v] of init.body.entries()) {
+        body[k] = typeof v === 'string' ? v : { blob: true, size: v.size, type: v.type };
+      }
+    } else if (init.body) {
+      body = JSON.parse(init.body);
+    }
     tgCalls.push({ method, body });
     if (method === 'sendMessage') sent.push(body);
     if (tgFailures.has(method)) {
@@ -183,6 +202,7 @@ export function resetAll() {
   ckan = null;
   ckanCalls.length = 0;
   tgFailures = new Set();
+  chartFails = false;
 }
 
 export const db = __db;
