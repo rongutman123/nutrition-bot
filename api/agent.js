@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { dayKey, lastDayKeys, getMealsRange, createDashSession } from '../lib/db.js';
 import { getContext, runAgent, undoAction, estimateSplit, getDay, logChatTurn } from '../lib/agent-core.js';
+import { caloriesChart, proteinChart, weightChart, accuracyChart, renderChart } from '../lib/charts.js';
 
 const TOKEN = process.env.AGENT_BOT_TOKEN;
 const API = `https://api.telegram.org/bot${TOKEN}`;
@@ -34,6 +35,34 @@ async function tg(method, payload) {
 
 const send = (chat_id, text, extra = {}) =>
   tg('sendMessage', { chat_id, text, parse_mode: 'HTML', ...extra });
+
+/* Model-authored text may use Telegram formatting, but only from a whitelist:
+   escape everything first, then restore the allowed tags. Injection-proof, and
+   an unbalanced tag can't take the message down (sendRich falls back to plain). */
+const ALLOWED = ['b', 'i', 'u', 's', 'code'];
+
+function safeHtml(raw = '') {
+  let out = esc(raw);
+  for (const tag of ALLOWED) {
+    out = out
+      .replaceAll(`&lt;${tag}&gt;`, `<${tag}>`)
+      .replaceAll(`&lt;/${tag}&gt;`, `</${tag}>`);
+  }
+  out = out
+    .replaceAll('&lt;blockquote&gt;', '<blockquote>')
+    .replaceAll('&lt;blockquote expandable&gt;', '<blockquote expandable>')
+    .replaceAll('&lt;/blockquote&gt;', '</blockquote>');
+  return out;
+}
+
+/* Sends formatted text; if Telegram rejects the markup, resends it plain
+   rather than losing the answer. */
+async function sendRich(chatId, html, extra = {}) {
+  const res = await send(chatId, html, extra);
+  if (res?.ok) return res;
+  const plain = html.replace(/<[^>]+>/g, '');
+  return tg('sendMessage', { chat_id: chatId, text: plain, ...extra });
+}
 
 /* ---------------- dedupe (DB-backed, survives cold starts) ---------------- */
 
@@ -274,12 +303,19 @@ async function onMessage(msg) {
   const text = (msg.text || '').trim();
   if (!text) return;
 
-  if (text === '/export' || text === 'ייצוא') return cmdExport(chatId);
-  if (text === '/dashboard' || text === 'דשבורד') return cmdDashboard(chatId);
-  if (text === '/foods' || text === 'המילון שלי') return cmdFoods(chatId);
-  if (text === '/saved' || text === 'שמורים') return cmdSaved(chatId);
+  // Keyboard taps arrive as ordinary text — route them before the agent so a
+  // tap is instant and costs no API call.
+  switch (text) {
+    case '/today': case BTN.left: return cmdToday(chatId);
+    case '/trends': case BTN.trends: return cmdTrends(chatId);
+    case '/saved': case BTN.saved: return cmdSaved(chatId);
+    case '/foods': return cmdFoods(chatId);
+    case '/dashboard': return cmdDashboard(chatId);
+    case '/export': return cmdExport(chatId);
+  }
 
   if (text === '/start') {
+    await tg('setMyCommands', { commands: COMMANDS });
     return send(
       chatId,
       '🤖 <b>היי! אני סוכן התזונה שלך</b>\n' +
@@ -296,7 +332,8 @@ async function onMessage(msg) {
         '• <i>"תשמור את זה בשם השייק שלי"</i> — ארוחות חוזרות\n' +
         '• 📷 תמונה של אוכל, תווית או <b>ברקוד</b>\n\n' +
         '📋 /saved · /foods · /dashboard · /export\n\n' +
-        'כל רישום מגיע עם כפתור <b>בטל</b> — טעות מתקנים בלחיצה.'
+        'כל רישום מגיע עם כפתור <b>בטל</b> — טעות מתקנים בלחיצה.',
+      { reply_markup: MAIN_KEYBOARD }
     );
   }
 
@@ -331,7 +368,7 @@ async function processWithAgent(chatId, userContent, rawText) {
 
   // No write — plain answer / clarification question
   if (!actions.length) {
-    return send(chatId, esc(agentText || 'לא הבנתי — נסה לנסח שוב.'));
+    return sendRich(chatId, agentText ? safeHtml(agentText) : 'לא הבנתי, נסה לנסח שוב.');
   }
 
   // Writes happened — confirmation block(s) + day summary + undo button(s)
@@ -345,7 +382,7 @@ async function processWithAgent(chatId, userContent, rawText) {
   const mealWrite = actions.some((a) => a.kind === 'log_meal' || a.kind === 'update_meal' || a.kind === 'delete_meal');
   if (mealWrite) body += `\n\n${dayStatus(rows, goals)}`;
   // Drop trivial echoes ("נרשם 👍") — show only comments that add information.
-  if (agentText && agentText.length >= 25 && agentText.length <= 200) body += `\n\n💬 <i>${esc(agentText)}</i>`;
+  if (agentText && agentText.length >= 25 && agentText.length <= 200) body += `\n\n💬 <i>${safeHtml(agentText)}</i>`;
 
   // One expandable at the end for everything secondary.
   const details = [
@@ -359,7 +396,7 @@ async function processWithAgent(chatId, userContent, rawText) {
     callback_data: `undo:${a.actionId}`,
   }));
 
-  return send(chatId, body, { reply_markup: { inline_keyboard: [undoRow] } });
+  return sendRich(chatId, body, { reply_markup: { inline_keyboard: [undoRow] } });
 }
 
 /* ---------------- saved meals & recipes menu ---------------- */
@@ -446,6 +483,148 @@ async function cmdFoods(chatId) {
   }
 
   return send(chatId, body);
+}
+
+/* ---------------- persistent keyboard ----------------
+   Only three buttons earn permanent screen space: the decision moment,
+   the one that saves typing, and trends. Everything else lives in the
+   Telegram commands menu, which costs nothing. */
+
+const BTN = { left: '⚡ כמה נשאר לי', saved: '⭐ שמורים', trends: '📊 מגמות' };
+
+const MAIN_KEYBOARD = {
+  keyboard: [[{ text: BTN.left }, { text: BTN.saved }, { text: BTN.trends }]],
+  resize_keyboard: true,
+  is_persistent: true,
+  input_field_placeholder: 'מה אכלת?',
+};
+
+const COMMANDS = [
+  { command: 'today', description: 'כמה נשאר לי היום' },
+  { command: 'trends', description: 'גרף מגמות' },
+  { command: 'saved', description: 'ארוחות ומתכונים שמורים' },
+  { command: 'foods', description: 'המילון האישי שלי' },
+  { command: 'dashboard', description: 'דשבורד מלא בדפדפן' },
+  { command: 'export', description: 'ייצוא נתונים לניתוח' },
+];
+
+/* Instant, Claude-free answer to "what's left" — the most frequent question. */
+async function cmdToday(chatId) {
+  const [goalsRow, rows] = await Promise.all([
+    sb.from('goals').select('*').eq('chat_id', chatId).maybeSingle(),
+    getDay(chatId),
+  ]);
+  const goals = goalsRow.data || { calories: 2000, protein: 130, carbs: 200, fat: 65 };
+  if (!rows.length) {
+    return send(chatId, 'עוד לא נרשם כלום היום 🙂\nכתוב לי מה אכלת.', { reply_markup: MAIN_KEYBOARD });
+  }
+
+  const list = rows.map((r) => {
+    const t = new Date(r.ts).toLocaleTimeString('he-IL', {
+      hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jerusalem',
+    });
+    const names = (r.items || []).map((i) => `${i.emoji || ''}${esc(i.name)}`).join(', ');
+    return `${t}  ${names} — <b>${n(r.totals?.calories)}</b>`;
+  }).join('\n');
+
+  const details = dayDetailLines(rows);
+  return send(
+    chatId,
+    `${dayStatus(rows, goals)}\n\n🍽 <b>הארוחות</b>\n${list}` +
+      (details.length ? `\n<blockquote expandable>${details.join('\n')}</blockquote>` : '')
+  );
+}
+
+/* ---------------- trend charts ---------------- */
+
+async function sendChartPhoto(chatId, png, caption) {
+  const form = new FormData();
+  form.append('chat_id', String(chatId));
+  form.append('caption', caption);
+  form.append('parse_mode', 'HTML');
+  form.append('photo', new Blob([png], { type: 'image/png' }), 'chart.png');
+  const res = await fetch(`${API}/sendPhoto`, { method: 'POST', body: form });
+  const data = await res.json();
+  if (!data.ok) console.error('sendPhoto error:', data);
+  return data;
+}
+
+/* Daily aggregates for a window, oldest -> newest, skipping untracked days. */
+async function dailySeries(chatId, nDays) {
+  const keys = lastDayKeys(nDays);
+  const rows = await getMealsRange(chatId, keys);
+  const byDay = new Map();
+  for (const r of rows) {
+    if (!byDay.has(r.day_key)) byDay.set(r.day_key, []);
+    byDay.get(r.day_key).push(r);
+  }
+  const days = [];
+  for (const k of keys) {
+    const list = byDay.get(k);
+    if (!list) continue;
+    const t = sumTotals(list);
+    const split = estimateSplit(list);
+    days.push({
+      day: k,
+      calories: Math.round(t.calories),
+      protein: Math.round(t.protein),
+      carbs: Math.round(t.carbs),
+      fat: Math.round(t.fat),
+      measuredPct: split ? split.measuredPct : 0,
+    });
+  }
+  return days;
+}
+
+const RANGE_LABEL = (n) => (n <= 7 ? '7 ימים אחרונים' : n <= 14 ? 'שבועיים אחרונים' : n <= 31 ? '30 ימים אחרונים' : `${n} ימים אחרונים`);
+
+/* metric: calories | protein | weight | accuracy */
+async function sendTrend(chatId, metric = 'calories', nDays = 30) {
+  const goalsRow = await sb.from('goals').select('*').eq('chat_id', chatId).maybeSingle();
+  const goals = goalsRow.data || { calories: 2000, protein: 130, carbs: 200, fat: 65 };
+
+  let chart, caption;
+
+  if (metric === 'weight') {
+    const { data: rows } = await sb
+      .from('measurements').select('*').eq('chat_id', chatId).order('measured_on', { ascending: true });
+    if (!rows?.length) {
+      return send(chatId, '⚖️ אין עדיין מדידות.\nשלח לי <i>"נשקלתי 95.8, מותן 105"</i> ואתחיל לעקוב.');
+    }
+    chart = weightChart(rows);
+    const first = rows.find((r) => r.weight_kg != null);
+    const last = [...rows].reverse().find((r) => r.weight_kg != null);
+    caption = first && last && first !== last
+      ? `⚖️ <b>${(last.weight_kg - first.weight_kg > 0 ? '+' : '')}${r1(last.weight_kg - first.weight_kg)} ק"ג</b> מאז ${first.measured_on.slice(5).split('-').reverse().join('.')}`
+      : '⚖️ מדידות גוף';
+  } else {
+    const days = await dailySeries(chatId, nDays);
+    if (!days.length) return send(chatId, '📊 אין עדיין נתונים בטווח הזה.');
+    const label = RANGE_LABEL(nDays);
+    const avg = (f) => Math.round(days.reduce((s, d) => s + d[f], 0) / days.length);
+
+    if (metric === 'protein') {
+      chart = proteinChart(days, goals.protein, label);
+      const hit = days.filter((d) => d.protein >= goals.protein).length;
+      caption = `🥩 ממוצע <b>${avg('protein')}</b> ג · הגעת ליעד ב-<b>${hit}</b> מתוך ${days.length} ימים`;
+    } else if (metric === 'accuracy') {
+      chart = accuracyChart(days, label);
+      caption = `🎯 ממוצע דיוק <b>${avg('measuredPct')}%</b> · ככל שהמילון גדל המספר עולה`;
+    } else {
+      chart = caloriesChart(days, goals.calories, label);
+      const over = days.filter((d) => d.calories > goals.calories).length;
+      caption = `🔥 ממוצע <b>${n(avg('calories'))}</b> קק"ל · חריגה ב-<b>${over}</b> מתוך ${days.length} ימים`;
+    }
+  }
+
+  const png = await renderChart(chart);
+  if (!png) return send(chatId, 'לא הצלחתי לייצר את הגרף כרגע 😕 נסה שוב בעוד רגע.');
+  return sendChartPhoto(chatId, png, caption);
+}
+
+/* The 📊 button: calories first — the number that drives decisions. */
+async function cmdTrends(chatId) {
+  return sendTrend(chatId, 'calories', 30);
 }
 
 /* ---------------- dashboard access ---------------- */

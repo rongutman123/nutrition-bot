@@ -8,7 +8,7 @@ import {
   say, useTool, useTools,
   post, textUpdate, callbackUpdate,
   resetAll, db, lastMessage, lastText, undoIdFrom,
-  seedGoals, seedMeal, todayKey,
+  seedGoals, seedMeal, todayKey, tgFailOnce,
 } from './harness.js';
 
 const { default: handler } = await import('../api/agent.js');
@@ -267,5 +267,39 @@ describe('never leave the user with nothing', () => {
     scriptClaude(say(''), say(''));
     await post(handler, textUpdate('משהו'));
     assert.ok(lastText().length > 0);
+  });
+});
+
+describe('formatting of model-authored answers', () => {
+  test('whitelisted tags survive; everything else is escaped', async () => {
+    scriptClaude(say('🔥 <b>1,145</b> קק"ל היום\n⚡ נותרו <b>955</b> <script>x</script>'));
+    await post(handler, textUpdate('כמה אכלתי'));
+
+    assert.match(lastText(), /<b>1,145<\/b>/, 'bold kept');
+    assert.doesNotMatch(lastText(), /<script>/, 'script escaped');
+    assert.match(lastText(), /&lt;script&gt;/);
+  });
+
+  test('an expandable block from the model is preserved', async () => {
+    scriptClaude(say('🔥 <b>500</b> קק"ל\n<blockquote expandable>פירוט משני</blockquote>'));
+    await post(handler, textUpdate('שאלה'));
+    assert.match(lastText(), /<blockquote expandable>/);
+  });
+
+  test('broken markup still reaches the user, as plain text', async () => {
+    tgFailOnce('sendMessage');
+    scriptClaude(say('<b>לא סגור כמו שצריך'));
+    await post(handler, textUpdate('שאלה'));
+
+    const texts = sent.map((s) => s.text);
+    assert.ok(texts.some((t) => !/[<>]/.test(t)), 'a plain-text retry was sent');
+  });
+
+  test('the formatting contract is in the system prompt', async () => {
+    scriptClaude(say('ok'));
+    await post(handler, textUpdate('שאלה'));
+    const sys = claudeCalls[0].system;
+    assert.match(sys, /רעיון אחד בשורה/);
+    assert.match(sys, /blockquote expandable/);
   });
 });

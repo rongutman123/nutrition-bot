@@ -27,6 +27,10 @@ let ckan = null;
 export const ckanCalls = [];
 export function setCkan(cfg) { ckan = cfg; }
 
+// Make the next call to a Telegram method fail, to exercise fallback paths.
+let tgFailures = new Set();
+export function tgFailOnce(method) { tgFailures.add(method); }
+
 export function scriptClaude(...responses) { claudeQueue.push(...responses); }
 export function failAnthropic(status = 500, body = 'boom') { anthropicFailure = { status, body }; }
 
@@ -92,6 +96,10 @@ globalThis.fetch = async (url, init = {}) => {
     const body = init.body ? JSON.parse(init.body) : {};
     tgCalls.push({ method, body });
     if (method === 'sendMessage') sent.push(body);
+    if (tgFailures.has(method)) {
+      tgFailures.delete(method);
+      return jsonRes({ ok: false, error_code: 400, description: "can't parse entities" });
+    }
     if (method === 'getFile') {
       return jsonRes({ ok: true, result: { file_path: 'photos/file_1.jpg' } });
     }
@@ -174,6 +182,7 @@ export function resetAll() {
   offCalls.length = 0;
   ckan = null;
   ckanCalls.length = 0;
+  tgFailures = new Set();
 }
 
 export const db = __db;
