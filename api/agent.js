@@ -71,16 +71,15 @@ function dayStatus(rows, goals) {
   return (
     `${remLine}\n` +
     `<code>${bar(day.calories, goals.calories)}</code>  ${n(day.calories)} מתוך ${n(goals.calories)}\n` +
-    `🥩 חלבון  <b>${r1(day.protein)}</b> מתוך ${goals.protein}`
+    `🥩 חלבון  <b>${r1(day.protein)}</b> מתוך ${goals.protein}\n` +
+    `🍚 פחמימות  <b>${r1(day.carbs)}</b> מתוך ${goals.carbs}\n` +
+    `🧈 שומן  <b>${r1(day.fat)}</b> מתוך ${goals.fat}`
   );
 }
 
-function dayDetailLines(rows, goals) {
-  const day = sumTotals(rows);
-  const lines = [`פחמימות ${r1(day.carbs)} מתוך ${goals.carbs} ג · שומן ${r1(day.fat)} מתוך ${goals.fat} ג`];
+function dayDetailLines(rows) {
   const split = estimateSplit(rows);
-  if (split) lines.push(`מדויק ${split.measuredPct}% · הערכה ${split.estimatedPct}% (מהקלוריות)`);
-  return lines;
+  return split ? [`מדויק ${split.measuredPct}% · הערכה ${split.estimatedPct}% (מהקלוריות)`] : [];
 }
 
 const CONF_ICON = { high: '🎯', medium: '〰️', low: '❔' };
@@ -110,17 +109,18 @@ function actionMain(a) {
   const conf = CONF_ICON[a.confidence] || '〰️';
   const single = a.items.length === 1;
 
+  const macroLine = `🥩 <b>${r1(a.totals.protein)}</b> · 🍚 <b>${r1(a.totals.carbs)}</b> · 🧈 <b>${r1(a.totals.fat)}</b> ג`;
   let out;
   if (single) {
     const it = a.items[0];
     out =
       `${head} · ${esc(it.name)} ${conf}\n\n` +
-      `🔥 <b>${n(a.totals.calories)}</b> קק"ל · 🥩 <b>${r1(a.totals.protein)}</b> ג חלבון`;
+      `🔥 <b>${n(a.totals.calories)}</b> קק"ל\n${macroLine}`;
   } else {
     out =
       `${head} · <b>${n(a.totals.calories)}</b> קק"ל ${conf}\n\n` +
       a.items.map((it) => `${it.emoji || '🍽'} ${esc(it.name)} — <b>${n(it.calories)}</b>`).join('\n') +
-      `\n\n🥩 <b>${r1(a.totals.protein)}</b> ג חלבון`;
+      `\n\n${macroLine}`;
   }
   if (a.dayKeyUsed && a.dayKeyUsed !== dayKey() && a.kind === 'log_meal') {
     out += `\n🗓 נרשם לתאריך ${ddmm(a.dayKeyUsed)}`;
@@ -157,7 +157,7 @@ function actionDetailLines(a) {
     .map((it) => `${esc(it.name)}: ${esc(it.portion || `${it.grams} גרם`)}`)
     .join(' · ');
   if (portions) lines.push(`כמויות — ${portions}`);
-  lines.push(`בארוחה: פחמימות ${r1(a.totals.carbs)} ג · שומן ${r1(a.totals.fat)} ג · סיבים ${r1(a.totals.fiber)} ג`);
+  lines.push(`סיבים ${r1(a.totals.fiber)} ג · סוכר ${r1(a.totals.sugar)} ג · נתרן ${n(a.totals.sodium_mg)} מ"ג`);
   if (a.assumptions) lines.push(`הנחות: ${esc(a.assumptions)}`);
   return lines;
 }
