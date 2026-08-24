@@ -707,3 +707,63 @@ describe('isolation', () => {
     assert.doesNotMatch(claudeCalls[0].system, /theirs/);
   });
 });
+
+/* ============ goals + dashboard (parity with the old bot) ============ */
+
+describe('set_goals', () => {
+  test('merges a partial change and marks what moved', async () => {
+    scriptClaude(useTool('set_goals', { protein: 150 }), say(''));
+    await post(handler, textUpdate('תעדכן יעד חלבון ל-150'));
+
+    const [g] = db.rows('goals');
+    assert.equal(g.protein, 150);
+    assert.equal(g.calories, 2100, 'other goals preserved');
+    assert.match(lastText(), /150/);
+    assert.doesNotMatch(lastText(), /נותרו/, 'goal change is not a meal write');
+  });
+
+  test('undo restores the previous goals exactly', async () => {
+    scriptClaude(useTool('set_goals', { calories: 1800, protein: 160 }), say(''));
+    await post(handler, textUpdate('שנה יעדים'));
+    const [undoData] = undoIdFrom(lastMessage());
+
+    await post(handler, callbackUpdate(undoData));
+
+    const [g] = db.rows('goals');
+    assert.equal(g.calories, 2100);
+    assert.equal(g.protein, 140);
+  });
+
+  test('rejects nonsense values instead of storing them', async () => {
+    scriptClaude(useTool('set_goals', { calories: -500 }), say('יעד חייב להיות חיובי'));
+    await post(handler, textUpdate('יעד מינוס'));
+
+    assert.equal(db.rows('goals')[0].calories, 2100);
+    const toolResult = claudeCalls.at(-1).messages.at(-1).content[0];
+    assert.equal(toolResult.is_error, true);
+  });
+
+  test('an empty call is refused', async () => {
+    scriptClaude(useTool('set_goals', {}), say('מה לשנות?'));
+    await post(handler, textUpdate('שנה יעד'));
+    const toolResult = claudeCalls.at(-1).messages.at(-1).content[0];
+    assert.equal(toolResult.is_error, true);
+  });
+});
+
+describe('/dashboard', () => {
+  test('creates a login session and returns a code plus a one-tap link', async () => {
+    process.env.DASH_URL = 'https://nutrition-bot-fawn.vercel.app';
+    const { default: freshHandler } = await import('../api/agent.js?dash=1');
+
+    await post(freshHandler, textUpdate('/dashboard'));
+
+    const msg = lastMessage();
+    assert.match(msg.text, /\d{6}/, 'six-digit code shown');
+    const url = msg.reply_markup.inline_keyboard[0][0].url;
+    assert.match(url, /dashboard\.html#t=[0-9a-f]{48}/);
+    assert.equal(db.rows('dash_sessions').length, 1);
+    assert.equal(db.rows('dash_sessions')[0].chat_id, CHAT);
+    assert.equal(db.rows('dash_sessions')[0].verified, false);
+  });
+});

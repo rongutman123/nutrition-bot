@@ -2,8 +2,9 @@
 // Every text message goes through the Claude agent loop (lib/agent-core.js).
 // Every write action replies with what was done + an inline undo button.
 
+import crypto from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
-import { dayKey, lastDayKeys, getMealsRange } from '../lib/db.js';
+import { dayKey, lastDayKeys, getMealsRange, createDashSession } from '../lib/db.js';
 import { getContext, runAgent, undoAction, estimateSplit, getDay, logChatTurn } from '../lib/agent-core.js';
 
 const TOKEN = process.env.AGENT_BOT_TOKEN;
@@ -88,6 +89,17 @@ const ddmm = (iso) => iso.slice(5).split('-').reverse().join('.');
 /* Main (always-visible) part of an action. Secondary data comes from
    actionDetailLines and lands in the single expandable at message end. */
 function actionMain(a) {
+  if (a.kind === 'set_goals') {
+    const g = a.goals;
+    const mark = (f) => (a.changed.includes(f) ? ' ←' : '');
+    return (
+      `🎯 <b>היעדים עודכנו</b>\n\n` +
+      `🔥 קלוריות  <b>${n(g.calories)}</b>${mark('calories')}\n` +
+      `🥩 חלבון  <b>${g.protein}</b> ג${mark('protein')}\n` +
+      `🍚 פחמימות  <b>${g.carbs}</b> ג${mark('carbs')}\n` +
+      `🧈 שומן  <b>${g.fat}</b> ג${mark('fat')}`
+    );
+  }
   if (a.kind === 'remember_food') {
     return `🧠 <b>"${esc(a.alias)}" ${a.isNew ? 'נשמר במילון' : 'עודכן במילון'}</b>`;
   }
@@ -129,6 +141,7 @@ function actionMain(a) {
 }
 
 function actionDetailLines(a) {
+  if (a.kind === 'set_goals') return [];
   if (a.kind === 'remember_food') {
     const s = a.saved || {};
     const lines = [];
@@ -235,6 +248,7 @@ async function onMessage(msg) {
   if (!text) return;
 
   if (text === '/export' || text === 'ייצוא') return cmdExport(chatId);
+  if (text === '/dashboard' || text === 'דשבורד') return cmdDashboard(chatId);
 
   if (text === '/start') {
     return send(
@@ -248,7 +262,8 @@ async function onMessage(msg) {
         '• <i>"זכור שכף אבקת חלבון היא 33 גרם"</i> — המילון האישי\n' +
         '• <i>"נשקלתי 95.8, מותן 105"</i> — מדידות + אחוז שומן\n' +
         '• <i>"כמה חלבון אכלתי היום?"</i> — שאלה (גם על ימים קודמים)\n' +
-        '• /export — ייצוא נתונים לניתוח\n\n' +
+        '• <i>"תעדכן יעד חלבון ל-150"</i> — יעדים\n' +
+        '• /dashboard — גרפים ומגמות · /export — ייצוא לניתוח\n\n' +
         'כל רישום מגיע עם כפתור <b>בטל</b> — טעות מתקנים בלחיצה.'
     );
   }
@@ -313,6 +328,33 @@ async function processWithAgent(chatId, userContent, rawText) {
   }));
 
   return send(chatId, body, { reply_markup: { inline_keyboard: [undoRow] } });
+}
+
+/* ---------------- dashboard access ---------------- */
+
+const DASH_URL = (process.env.DASH_URL || '').replace(/\/$/, '');
+
+async function cmdDashboard(chatId) {
+  if (!DASH_URL) {
+    return send(chatId, '📈 הדשבורד לא מוגדר עדיין.\n<i>צריך משתנה סביבה DASH_URL ב-Vercel.</i>');
+  }
+  const token = crypto.randomBytes(24).toString('hex');
+  const code = String(crypto.randomInt(100_000, 999_999));
+  try {
+    await createDashSession(chatId, token, code);
+  } catch (err) {
+    console.error('dash session error:', err);
+    return send(chatId, 'לא הצלחתי לפתוח גישה לדשבורד. נסה שוב.');
+  }
+
+  return send(
+    chatId,
+    `📈 <b>הדשבורד שלך</b>\n\n` +
+      `בטלפון — הכפתור למטה.\n\n` +
+      `במחשב — פתח <code>${DASH_URL}/dashboard.html</code>\nוהזן את הקוד:\n\n<code>${code}</code>\n\n` +
+      `<i>הקוד תקף ל-15 דקות · אחרי הכניסה נשארים מחוברים 30 יום</i>`,
+    { reply_markup: { inline_keyboard: [[{ text: '📈 פתח דשבורד', url: `${DASH_URL}/dashboard.html#t=${token}` }]] } }
+  );
 }
 
 /* ---------------- export (paste-ready block for analysis) ---------------- */
