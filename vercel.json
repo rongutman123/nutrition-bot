@@ -4,5 +4,10 @@
       "path": "/api/telegram?cron=weekly",
       "schedule": "0 20 * * 6"
     }
-  ]
+  ],
+  "functions": {
+    "api/agent.js": {
+      "maxDuration": 60
+    }
+  }
 }
