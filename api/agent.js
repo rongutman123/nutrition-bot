@@ -46,12 +46,11 @@ async function firstTimeSeen(updateId) {
 
 /* ---------------- formatting ---------------- */
 
-function bar(val, goal, width = 10) {
+function bar(val, goal, width = 8) {
   const pct = goal > 0 ? Math.min(1, val / goal) : 0;
   const filled = Math.round(pct * width);
-  return '█'.repeat(filled) + '░'.repeat(width - filled);
+  return '▰'.repeat(filled) + '▱'.repeat(width - filled);
 }
-const pctTxt = (val, goal) => (goal > 0 ? Math.round((val / goal) * 100) + '%' : '—');
 
 function sumTotals(rows) {
   const t = { calories: 0, protein: 0, carbs: 0, fat: 0 };
@@ -59,42 +58,48 @@ function sumTotals(rows) {
   return t;
 }
 
+/* ADHD-friendly: the decision-driving number first (what's left today),
+   two bars max, everything secondary folded into an expandable quote. */
 function daySummary(rows, goals) {
   const day = sumTotals(rows);
   const rem = goals.calories - day.calories;
-  const remLine = rem >= 0 ? `נותרו <b>${n(rem)}</b>` : `חריגה <b>${n(-rem)}</b> 🔺`;
-  let s =
-    `📊 <b>היום עד עכשיו</b>\n\n` +
-    `🔥 <b>קלוריות</b>\n` +
-    `<code>${bar(day.calories, goals.calories)}</code> ${pctTxt(day.calories, goals.calories)}\n` +
-    `<b>${n(day.calories)}</b> / ${n(goals.calories)}  ·  ${remLine}\n\n` +
-    `🥩 <b>חלבון</b>  <code>${bar(day.protein, goals.protein)}</code> ${r1(day.protein)}/${goals.protein} ג\n` +
-    `🍚 <b>פחמימות</b>  <code>${bar(day.carbs, goals.carbs)}</code> ${r1(day.carbs)}/${goals.carbs} ג\n` +
-    `🧈 <b>שומן</b>  <code>${bar(day.fat, goals.fat)}</code> ${r1(day.fat)}/${goals.fat} ג`;
+  const remLine = rem >= 0
+    ? `⚡ נותרו <b>${n(rem)}</b> קק"ל להיום`
+    : `🔺 חריגה של <b>${n(-rem)}</b> קק"ל היום`;
+
+  const details = [`🍚 פחמימות ${r1(day.carbs)}/${goals.carbs} ג · 🧈 שומן ${r1(day.fat)}/${goals.fat} ג`];
   const split = estimateSplit(rows);
-  if (split) s += `\n\n🎯 מדויק ${split.measuredPct}% · 〰️ הערכה ${split.estimatedPct}% <i>(מהקלוריות)</i>`;
-  return s;
+  if (split) details.push(`🎯 מדויק ${split.measuredPct}% · 〰️ הערכה ${split.estimatedPct}% (מהקלוריות)`);
+
+  return (
+    `${remLine}\n` +
+    `🔥 <code>${bar(day.calories, goals.calories)}</code> <b>${n(day.calories)}</b>/${n(goals.calories)}\n` +
+    `🥩 <code>${bar(day.protein, goals.protein)}</code> <b>${r1(day.protein)}</b>/${goals.protein} חלבון\n` +
+    `<blockquote expandable>${details.join('\n')}</blockquote>`
+  );
 }
 
-const CONF_ICON = { high: '🎯 דיוק גבוה', medium: '〰️ הערכה', low: '❔ הערכה גסה' };
+const CONF_ICON = { high: '🎯', medium: '〰️', low: '❔' };
 
 function rememberBlock(a) {
   const s = a.saved || {};
-  const lines = [];
-  if (s.product) lines.push(`   מוצר: ${esc(s.product)}`);
-  if (s.serving_grams) lines.push(`   מנה: ${s.serving_grams} גרם`);
+  const details = [];
+  if (s.product) details.push(`מוצר: ${esc(s.product)}`);
+  if (s.serving_grams) details.push(`מנה: ${s.serving_grams} גרם`);
   if (s.kcal_per_100g != null) {
-    let m = `   ל-100 גרם: ${s.kcal_per_100g} קק"ל`;
+    let m = `ל-100 גרם: ${s.kcal_per_100g} קק"ל`;
     if (s.protein_per_100g != null) m += ` · חלבון ${s.protein_per_100g}`;
     if (s.carbs_per_100g != null) m += ` · פחמ' ${s.carbs_per_100g}`;
     if (s.fat_per_100g != null) m += ` · שומן ${s.fat_per_100g}`;
-    lines.push(m);
+    details.push(m);
   }
   if (s.variants) {
-    lines.push(`   וריאציות: ${esc(Object.entries(s.variants).map(([k, v]) => `${k}=${v} גרם`).join(', '))}`);
+    details.push(`וריאציות: ${esc(Object.entries(s.variants).map(([k, v]) => `${k}=${v} גרם`).join(', '))}`);
   }
-  const head = a.isNew ? '🧠 <b>נשמר במילון</b>' : '🧠 <b>המילון עודכן</b>';
-  return `${head}  ·  "${esc(a.alias)}"\n${RULE}\n${lines.join('\n') || '   (עודכן)'}`;
+  const head = a.isNew ? 'נשמר במילון' : 'המילון עודכן';
+  let out = `🧠 <b>"${esc(a.alias)}" ${head}</b>`;
+  if (details.length) out += `\n<blockquote expandable>${details.join('\n')}</blockquote>`;
+  return out;
 }
 
 function measurementBlock(a) {
@@ -102,33 +107,43 @@ function measurementBlock(a) {
   const d = a.deltas || {};
   const delta = (v) => (v == null ? '' : v.diff === 0 ? '  (ללא שינוי)' : `  (${v.diff > 0 ? '+' : ''}${v.diff} מאז ${v.since.slice(5).split('-').reverse().join('.')})`);
   const lines = [];
-  if (s.weight_kg != null) lines.push(`   משקל: <b>${s.weight_kg}</b> ק"ג${delta(d.weight_kg)}`);
-  if (s.waist_cm != null) lines.push(`   מותן: <b>${s.waist_cm}</b> ס"מ${delta(d.waist_cm)}`);
-  if (s.neck_cm != null) lines.push(`   צוואר: ${s.neck_cm} ס"מ`);
-  if (s.steps_avg != null) lines.push(`   צעדים (ממוצע): ${n(s.steps_avg)}`);
-  if (a.navyPct != null) lines.push(`   🧮 שומן גוף (Navy): <b>${a.navyPct}%</b>`);
-  if (s.notes) lines.push(`   הערה: ${esc(s.notes)}`);
-  return `⚖️ <b>נרשמה מדידה</b>  ·  ${a.measuredOn}\n${RULE}\n${lines.join('\n')}`;
+  if (s.weight_kg != null) lines.push(`⚖️ משקל <b>${s.weight_kg}</b> ק"ג${delta(d.weight_kg)}`);
+  if (s.waist_cm != null) lines.push(`📏 מותן <b>${s.waist_cm}</b> ס"מ${delta(d.waist_cm)}`);
+  if (a.navyPct != null) lines.push(`🧮 שומן גוף <b>${a.navyPct}%</b> (Navy)`);
+  const details = [];
+  if (s.neck_cm != null) details.push(`צוואר: ${s.neck_cm} ס"מ`);
+  if (s.steps_avg != null) details.push(`צעדים (ממוצע): ${n(s.steps_avg)}`);
+  if (s.notes) details.push(`הערה: ${esc(s.notes)}`);
+  let out = `✅ <b>נרשמה מדידה</b> · ${a.measuredOn.slice(5).split('-').reverse().join('.')}\n${lines.join('\n')}`;
+  if (details.length) out += `\n<blockquote expandable>${details.join('\n')}</blockquote>`;
+  return out;
 }
 
 function actionBlock(a) {
   if (a.kind === 'remember_food') return rememberBlock(a);
   if (a.kind === 'log_measurement') return measurementBlock(a);
   const head =
-    a.kind === 'log_meal' ? '✅ <b>נוסף ליומן</b>'
-    : a.kind === 'delete_meal' ? '🗑 <b>נמחק מהיומן</b>'
-    : '✏️ <b>הרישום עודכן</b>';
-  const conf = CONF_ICON[a.confidence] || '〰️ הערכה';
+    a.kind === 'log_meal' ? '✅ <b>נרשם</b>'
+    : a.kind === 'delete_meal' ? '🗑 <b>נמחק</b>'
+    : '✏️ <b>עודכן</b>';
+  const conf = CONF_ICON[a.confidence] || '〰️';
   const lines = a.items.map(
-    (it) => `   • ${esc(it.name)} — <b>${n(it.calories)}</b> קק"ל  <i>(${esc(it.portion || `${it.grams} גרם`)})</i>`
+    (it) => `${it.emoji || '🍽'} ${esc(it.name)} — <b>${n(it.calories)}</b>`
   );
-  let s =
-    `${head}  ·  ${conf}\n${RULE}\n` +
+
+  const details = [];
+  const portions = a.items
+    .map((it) => `${esc(it.name)}: ${esc(it.portion || `${it.grams} גרם`)}`)
+    .join(' · ');
+  if (portions) details.push(`⚖️ ${portions}`);
+  details.push(`🥩 חלבון ${r1(a.totals.protein)} ג · 🍚 פחמ' ${r1(a.totals.carbs)} ג · 🧈 שומן ${r1(a.totals.fat)} ג`);
+  if (a.assumptions) details.push(`ℹ️ ${esc(a.assumptions)}`);
+
+  return (
+    `${head} · <b>${n(a.totals.calories)}</b> קק"ל ${conf}\n` +
     lines.join('\n') +
-    `\n\n🍽 <b>סה"כ הארוחה: ${n(a.totals.calories)} קק"ל</b>\n` +
-    `   🥩 ${r1(a.totals.protein)}  ·  🍚 ${r1(a.totals.carbs)}  ·  🧈 ${r1(a.totals.fat)}`;
-  if (a.assumptions) s += `\n<i>ℹ️ ${esc(a.assumptions)}</i>`;
-  return s;
+    `\n<blockquote expandable>${details.join('\n')}</blockquote>`
+  );
 }
 
 /* ---------------- entry point ---------------- */
@@ -249,11 +264,13 @@ async function processWithAgent(chatId, userContent, rawText) {
   const goals = goalsRow.data || { calories: 2000, protein: 130, carbs: 200, fat: 65 };
 
   const blocks = actions.map(actionBlock);
-  let body = blocks.join(`\n\n${RULE}\n`);
-  if (agentText) body += `\n\n💬 <i>${esc(agentText)}</i>`;
+  let body = blocks.join('\n\n');
+  // The model's one-liner usually repeats what the block already shows — keep it
+  // only when it's the sole content (e.g. a remember confirmation with a comment).
+  if (agentText && agentText.length <= 160) body += `\n💬 <i>${esc(agentText)}</i>`;
   // Day summary only when a meal was written — a dictionary-only action doesn't need it.
   if (actions.some((a) => a.kind === 'log_meal' || a.kind === 'update_meal' || a.kind === 'delete_meal')) {
-    body += `\n\n${RULE}\n${daySummary(rows, goals)}`;
+    body += `\n\n${daySummary(rows, goals)}`;
   }
 
   const undoRow = actions.map((a, i) => ({
