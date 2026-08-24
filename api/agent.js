@@ -103,6 +103,23 @@ function actionMain(a) {
   if (a.kind === 'remember_food') {
     return `🧠 <b>"${esc(a.alias)}" ${a.isNew ? 'נשמר במילון' : 'עודכן במילון'}</b>`;
   }
+  if (a.kind === 'save_recipe') {
+    const lines = [`📖 <b>"${esc(a.name)}" ${a.isNew ? 'נשמר כמתכון' : 'עודכן'}</b>`, ''];
+    lines.push(`סה"כ  <b>${n(a.totals.calories)}</b> קק"ל · ${a.ingredientCount} רכיבים`);
+    if (a.perServing) lines.push(`למנה  <b>${n(a.perServing.calories)}</b> קק"ל · 🥩 ${r1(a.perServing.protein)} ג`);
+    if (a.per100g) lines.push(`ל-100 ג  <b>${n(a.per100g.calories)}</b> קק"ל · 🥩 ${r1(a.per100g.protein)} ג`);
+    return lines.join(String.fromCharCode(10));
+  }
+  if (a.kind === 'save_meal') {
+    return (
+      `⭐ <b>"${esc(a.name)}" ${a.isNew ? 'נשמרה' : 'עודכנה'}</b>
+
+` +
+      `<b>${n(a.totals.calories)}</b> קק"ל · 🥩 ${r1(a.totals.protein)} ג
+` +
+      `<i>מעכשיו אפשר לרשום אותה בשם, או מ-/saved</i>`
+    );
+  }
   if (a.kind === 'log_measurement') {
     const s = a.saved || {};
     const d = a.deltas || {};
@@ -142,6 +159,16 @@ function actionMain(a) {
 
 function actionDetailLines(a) {
   if (a.kind === 'set_goals') return [];
+  if (a.kind === 'save_recipe') {
+    const lines = [];
+    if (a.totalGrams) lines.push(`משקל מוכן: ${a.totalGrams} גרם`);
+    if (a.servings) lines.push(`מנות: ${a.servings}`);
+    lines.push(`מאקרו סה"כ: חלבון ${r1(a.totals.protein)} ג · פחמ' ${r1(a.totals.carbs)} ג · שומן ${r1(a.totals.fat)} ג`);
+    return lines;
+  }
+  if (a.kind === 'save_meal') {
+    return [a.items.map((i) => `${esc(i.name)} ${Math.round(i.calories || 0)}`).join(' · ')];
+  }
   if (a.kind === 'remember_food') {
     const s = a.saved || {};
     const lines = [];
@@ -250,6 +277,7 @@ async function onMessage(msg) {
   if (text === '/export' || text === 'ייצוא') return cmdExport(chatId);
   if (text === '/dashboard' || text === 'דשבורד') return cmdDashboard(chatId);
   if (text === '/foods' || text === 'המילון שלי') return cmdFoods(chatId);
+  if (text === '/saved' || text === 'שמורים') return cmdSaved(chatId);
 
   if (text === '/start') {
     return send(
@@ -329,6 +357,57 @@ async function processWithAgent(chatId, userContent, rawText) {
   }));
 
   return send(chatId, body, { reply_markup: { inline_keyboard: [undoRow] } });
+}
+
+/* ---------------- saved meals & recipes menu ---------------- */
+
+async function cmdSaved(chatId) {
+  const [{ data: meals }, { data: recipes }] = await Promise.all([
+    sb.from('saved_meals').select('*').eq('chat_id', chatId).order('use_count', { ascending: false }),
+    sb.from('recipes').select('*').eq('chat_id', chatId).order('name'),
+  ]);
+
+  if (!meals?.length && !recipes?.length) {
+    return send(
+      chatId,
+      '⭐ <b>אין עדיין ארוחות או מתכונים שמורים</b>\n\n' +
+        'אחרי שתרשום ארוחה, אמור לי:\n<i>"תשמור את זה בשם ארוחת בוקר קבועה"</i>\n\n' +
+        'ולמתכון — פשוט שלח לי אותו:\n<i>"מתכון לפנקייק חלבון: 2 ביצים, 60 גרם שיבולת שועל..."</i>'
+    );
+  }
+
+  const rows = [];
+  let body = '';
+
+  if (meals?.length) {
+    body += `⭐ <b>ארוחות שמורות</b>\n`;
+    const byCat = new Map();
+    for (const m of meals) {
+      const c = m.category || 'ללא קטגוריה';
+      if (!byCat.has(c)) byCat.set(c, []);
+      byCat.get(c).push(m);
+    }
+    for (const [cat, list] of byCat) {
+      body += `\n<u>${esc(cat)}</u>\n`;
+      for (const m of list) {
+        body += `• ${esc(m.name)} — ${n(m.totals?.calories)} קק"ל${m.use_count ? ` <i>(${m.use_count}×)</i>` : ''}\n`;
+        rows.push([{ text: `⭐ ${m.name}`, callback_data: `logsaved:m:${m.id}` }]);
+      }
+    }
+  }
+
+  if (recipes?.length) {
+    body += `\n📖 <b>מתכונים</b>\n`;
+    for (const r of recipes) {
+      const per = r.servings ? Math.round((r.totals?.calories || 0) / r.servings) : null;
+      body += `• ${esc(r.name)} — ${n(r.totals?.calories)} קק"ל סה"כ${per ? ` · ${n(per)} למנה` : ''}\n`;
+      rows.push([{ text: `📖 ${r.name} — מנה אחת`, callback_data: `logsaved:r:${r.id}` }]);
+    }
+  }
+
+  body += `\n<i>לחיצה רושמת מנה אחת. לכמות אחרת פשוט כתוב לי — "שתי מנות מהפנקייק".</i>`;
+
+  return send(chatId, body, { reply_markup: { inline_keyboard: rows.slice(0, 20) } });
 }
 
 /* ---------------- personal dictionary listing ---------------- */
@@ -453,7 +532,19 @@ async function onCallback(cb) {
   const data = cb.data || '';
   const ack = (text) => tg('answerCallbackQuery', { callback_query_id: cb.id, ...(text && { text }) });
 
-  if (!chatId || !data.startsWith('undo:')) return ack();
+  if (!chatId) return ack();
+
+  // One-tap log from the /saved menu
+  if (data.startsWith('logsaved:')) {
+    const [, kind, id] = data.split(':');
+    const table = kind === 'm' ? 'saved_meals' : 'recipes';
+    const { data: row } = await sb.from(table).select('name').eq('id', Number(id)).eq('chat_id', chatId).maybeSingle();
+    if (!row) return ack('לא נמצא');
+    await ack('רושם…');
+    return processWithAgent(chatId, `רשום ${row.name}`, row.name);
+  }
+
+  if (!data.startsWith('undo:')) return ack();
 
   let result;
   try {
@@ -477,6 +568,8 @@ async function onCallback(cb) {
     result.kind === 'log_meal' ? 'הרישום נמחק'
     : result.kind === 'delete_meal' ? 'הרישום שוחזר'
     : result.kind === 'remember_food' ? 'המילון שוחזר'
+    : result.kind === 'save_recipe' ? 'המתכון שוחזר'
+    : result.kind === 'save_meal' ? 'הארוחה השמורה שוחזרה'
     : result.kind === 'log_measurement' ? 'המדידה שוחזרה'
     : 'העדכון שוחזר';
 

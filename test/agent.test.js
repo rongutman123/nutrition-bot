@@ -802,3 +802,64 @@ describe('/foods and dictionary completeness', () => {
     assert.doesNotMatch(system, /"קוטג'" ⚠️/);
   });
 });
+
+/* ============ barcode ============ */
+
+describe('lookup_barcode', () => {
+  test('personal dictionary wins over the external database', async () => {
+    db.insert('my_foods', {
+      id: 1, chat_id: CHAT, alias: 'החלבון שלי', product: 'אבקת חלבון',
+      barcode: '7290004131074', serving_grams: 33, kcal_per_100g: 380, protein_per_100g: 78,
+    });
+    scriptClaude(useTool('lookup_barcode', { barcode: '7290004131074' }), say('זיהיתי'));
+    await post(handler, textUpdate('ברקוד'));
+
+    const r = JSON.parse(claudeCalls.at(-1).messages.at(-1).content[0].content);
+    assert.equal(r.found, true);
+    assert.equal(r.source, 'personal', 'no network call needed');
+    assert.equal(r.per100g.kcal, 380);
+  });
+
+  test('a barcode miss is a normal answer, not an error', async () => {
+    globalThis.__offStatus = 0;
+    scriptClaude(useTool('lookup_barcode', { barcode: '7290000042886' }), say('לא מצאתי, שלח תמונת תווית'));
+    await post(handler, textUpdate('ברקוד לא מוכר'));
+
+    const block = claudeCalls.at(-1).messages.at(-1).content[0];
+    assert.notEqual(block.is_error, true);
+    const r = JSON.parse(block.content);
+    assert.equal(r.found, false);
+    assert.match(lastText(), /תווית/);
+  });
+
+  test('a malformed barcode is rejected before any lookup', async () => {
+    scriptClaude(useTool('lookup_barcode', { barcode: '12' }), say('הברקוד לא תקין'));
+    await post(handler, textUpdate('ברקוד'));
+    assert.equal(claudeCalls.at(-1).messages.at(-1).content[0].is_error, true);
+  });
+
+  test('a barcode saved via remember_food makes the next scan instant', async () => {
+    scriptClaude(useTool('remember_food', {
+      alias: 'במבה', product: 'אוסם במבה', barcode: '7290000066127',
+      serving_grams: 60, kcal_per_100g: 526, protein_per_100g: 15,
+    }), say(''));
+    await post(handler, textUpdate('הנה התווית'));
+
+    assert.equal(db.rows('my_foods')[0].barcode, '7290000066127');
+
+    scriptClaude(useTool('lookup_barcode', { barcode: '7290000066127' }), say('במבה'));
+    await post(handler, textUpdate('ברקוד שוב'));
+    const r = JSON.parse(claudeCalls.at(-1).messages.at(-1).content[0].content);
+    assert.equal(r.source, 'personal');
+    assert.equal(r.per100g.kcal, 526);
+  });
+
+  test('lookup is a read: no undo button, nothing written', async () => {
+    db.insert('my_foods', { id: 1, chat_id: CHAT, alias: 'x', barcode: '1234567890', kcal_per_100g: 100 });
+    scriptClaude(useTool('lookup_barcode', { barcode: '1234567890' }), say('זה המוצר, כמה אכלת?'));
+    await post(handler, textUpdate('ברקוד'));
+
+    assert.equal(lastMessage().reply_markup, undefined);
+    assert.equal(db.rows('meals').length, 0);
+  });
+});

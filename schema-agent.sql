@@ -85,3 +85,42 @@ create table if not exists agent_actions (
   created_at timestamptz default now()
 );
 alter table agent_actions enable row level security;
+
+-- ============================================================
+-- Phase 2a — barcode support on the personal dictionary
+-- ============================================================
+alter table my_foods add column if not exists barcode text;
+create unique index if not exists my_foods_chat_barcode
+  on my_foods (chat_id, barcode) where barcode is not null;
+
+-- ============================================================
+-- Phase 2b — recipes and saved meals
+-- ============================================================
+create table if not exists recipes (
+  id bigserial primary key,
+  chat_id bigint not null,
+  name text not null,
+  total_grams numeric,             -- finished weight, for per-100g math
+  servings numeric,                -- how many portions it makes
+  ingredients jsonb not null,      -- [{name, grams, calories, protein, carbs, fat}]
+  totals jsonb not null,           -- whole-recipe macros
+  notes text,
+  updated_at timestamptz default now(),
+  unique (chat_id, name)
+);
+
+create table if not exists saved_meals (
+  id bigserial primary key,
+  chat_id bigint not null,
+  name text not null,
+  category text,                   -- "ארוחת בוקר" / "שייק" / ...
+  items jsonb not null,            -- snapshot of the item list
+  totals jsonb not null,
+  use_count int default 0,
+  last_used timestamptz,
+  updated_at timestamptz default now(),
+  unique (chat_id, name)
+);
+
+alter table recipes enable row level security;
+alter table saved_meals enable row level security;

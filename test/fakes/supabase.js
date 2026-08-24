@@ -13,6 +13,8 @@ const TABLES = {
   agent_actions: { pk: 'id', pkType: 'serial', unique: [] },
   agent_chat_log: { pk: 'id', pkType: 'serial', unique: [] },
   dash_sessions: { pk: 'token', pkType: 'given', unique: [] },
+  recipes: { pk: 'id', pkType: 'serial', unique: [['chat_id', 'name']] },
+  saved_meals: { pk: 'id', pkType: 'serial', unique: [['chat_id', 'name']] },
 };
 
 const store = new Map();
@@ -59,6 +61,8 @@ const DEFAULTS = {
   agent_actions: () => ({ undone: false, created_at: new Date().toISOString() }),
   agent_chat_log: () => ({ created_at: new Date().toISOString() }),
   dash_sessions: () => ({ verified: false }),
+  recipes: () => ({ updated_at: new Date().toISOString() }),
+  saved_meals: () => ({ use_count: 0, updated_at: new Date().toISOString() }),
 };
 
 function withPk(table, row) {

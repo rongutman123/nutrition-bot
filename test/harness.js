@@ -17,6 +17,9 @@ export const tgCalls = [];     // every telegram method call
 export const claudeCalls = []; // request bodies sent to the Messages API
 let claudeQueue = [];
 let anthropicFailure = null;
+let offProduct = null;
+export const offCalls = [];
+export function setOffProduct(p) { offProduct = p; }
 
 export function scriptClaude(...responses) { claudeQueue.push(...responses); }
 export function failAnthropic(status = 500, body = 'boom') { anthropicFailure = { status, body }; }
@@ -49,6 +52,13 @@ globalThis.fetch = async (url, init = {}) => {
 
   if (u.startsWith('https://api.telegram.org/file/')) {
     return new Response(Buffer.from('fake-image-bytes'), { status: 200 });
+  }
+
+  // Open Food Facts — offline by default; set offProduct to simulate a hit.
+  if (u.startsWith('https://world.openfoodfacts.org/')) {
+    offCalls.push(u);
+    if (offProduct) return jsonRes({ status: 1, product: offProduct });
+    return jsonRes({ status: 0, status_verbose: 'product not found' });
   }
 
   if (u.startsWith('https://api.telegram.org/')) {
@@ -133,6 +143,8 @@ export function resetAll() {
   claudeCalls.length = 0;
   claudeQueue = [];
   anthropicFailure = null;
+  offProduct = null;
+  offCalls.length = 0;
 }
 
 export const db = __db;
