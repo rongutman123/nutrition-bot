@@ -9,6 +9,7 @@ process.env.ANTHROPIC_API_KEY ||= 'fake-anthropic';
 process.env.AGENT_HEIGHT_CM ||= '172';
 
 import { __reset, __db } from './fakes/supabase.js';
+const { __resetLookupCache } = await import('../lib/agent-core.js');
 
 export const CHAT = 555001;
 
@@ -20,6 +21,11 @@ let anthropicFailure = null;
 let offProduct = null;
 export const offCalls = [];
 export function setOffProduct(p) { offProduct = p; }
+
+// data.gov.il (Israeli nutrition DB) — offline by default.
+let ckan = null;
+export const ckanCalls = [];
+export function setCkan(cfg) { ckan = cfg; }
 
 export function scriptClaude(...responses) { claudeQueue.push(...responses); }
 export function failAnthropic(status = 500, body = 'boom') { anthropicFailure = { status, body }; }
@@ -52,6 +58,26 @@ globalThis.fetch = async (url, init = {}) => {
 
   if (u.startsWith('https://api.telegram.org/file/')) {
     return new Response(Buffer.from('fake-image-bytes'), { status: 200 });
+  }
+
+  if (u.startsWith('https://data.gov.il/api/3/action/datastore_search')) {
+    ckanCalls.push(u);
+    if (!ckan || ckan.fail) return new Response('upstream error', { status: 502 });
+    const p = new URL(u).searchParams;
+    const rid = p.get('resource_id');
+    if (rid === '98fb46fe-e8de-4067-94d2-b0a8ea4269da') {
+      return jsonRes({ success: true, result: {
+        total: Object.keys(ckan.units || {}).length,
+        records: Object.entries(ckan.units || {}).map(([smlmida, shmmida]) => ({ smlmida, shmmida })),
+      } });
+    }
+    if (rid === '755d28c0-75f7-40e1-9c8c-ecdd106f9b2d') {
+      const code = JSON.parse(p.get('filters') || '{}').mmitzrach;
+      const rows = (ckan.measures || {})[code] || [];
+      return jsonRes({ success: true, result: { total: rows.length, records: rows } });
+    }
+    const foods = ckan.foods || [];
+    return jsonRes({ success: true, result: { total: foods.length, records: foods } });
   }
 
   // Open Food Facts — offline by default; set offProduct to simulate a hit.
@@ -138,6 +164,7 @@ export async function post(handler, update, { secret = 'test-secret' } = {}) {
 
 export function resetAll() {
   __reset();
+  __resetLookupCache();
   sent.length = 0;
   tgCalls.length = 0;
   claudeCalls.length = 0;
@@ -145,6 +172,8 @@ export function resetAll() {
   anthropicFailure = null;
   offProduct = null;
   offCalls.length = 0;
+  ckan = null;
+  ckanCalls.length = 0;
 }
 
 export const db = __db;
