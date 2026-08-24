@@ -399,6 +399,9 @@ async function onCallback(cb) {
     : result.kind === 'log_measurement' ? 'המדידה שוחזרה'
     : 'העדכון שוחזר';
 
+  // Keep the conversation log truthful — the next message must know this was undone.
+  await logChatTurn(chatId, 'assistant', `[המשתמש לחץ על כפתור ביטול: ${verb}]`);
+
   await tg('editMessageText', {
     chat_id: chatId,
     message_id: cb.message.message_id,
