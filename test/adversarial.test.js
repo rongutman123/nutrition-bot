@@ -243,3 +243,29 @@ describe('numeric and locale edge cases', () => {
     assert.match(sent[0].text, /EXPORT/);
   });
 });
+
+describe('never leave the user with nothing', () => {
+  test('an empty answer triggers a forced-text retry instead of "I did not understand"', async () => {
+    scriptClaude(say(''), say('היום אכלת 1,145 קלוריות.'));
+    await post(handler, textUpdate('מה אכלתי היום'));
+
+    assert.equal(claudeCalls.length, 2, 'retried');
+    assert.equal(claudeCalls[1].tool_choice?.type, 'none', 'retry disables tools');
+    assert.match(lastText(), /1,145/);
+    assert.doesNotMatch(lastText(), /לא הבנתי/);
+  });
+
+  test('a silent turn after a successful write is fine — no retry', async () => {
+    scriptClaude(useTool('log_meal', { items: [ITEM()], confidence: 'low' }), say(''));
+    await post(handler, textUpdate('תפוח'));
+
+    assert.equal(claudeCalls.length, 2, 'no extra retry call');
+    assert.match(lastText(), /נרשם/);
+  });
+
+  test('if the retry also comes back empty the user still gets a message', async () => {
+    scriptClaude(say(''), say(''));
+    await post(handler, textUpdate('משהו'));
+    assert.ok(lastText().length > 0);
+  });
+});
