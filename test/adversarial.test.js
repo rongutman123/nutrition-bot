@@ -177,7 +177,7 @@ describe('failure modes', () => {
     await post(handler, textUpdate('חזה עוף'));
 
     assert.equal(db.rows('meals').length, 0);
-    assert.match(lastText(), /לא הצלחתי/);
+    assert.match(lastText(), /נפלתי באמצע/);
   });
 
   test('a DB write failure inside a tool is reported to the model, not swallowed', async () => {

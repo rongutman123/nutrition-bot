@@ -50,7 +50,7 @@ describe('webhook', () => {
     failAnthropic(500);
     const res = await post(handler, textUpdate('ביצה'));
     assert.equal(res.statusCode, 200);
-    assert.match(lastText(), /לא הצלחתי/);
+    assert.match(lastText(), /נפלתי באמצע/);
   });
 
   test('GET returns a health string', async () => {

@@ -349,10 +349,14 @@ async function processWithAgent(chatId, userContent, rawText) {
     result = await runAgent(chatId, userContent, ctx, rawText);
   } catch (err) {
     console.error('agent error:', err);
-    return send(chatId, 'לא הצלחתי לעבד את זה כרגע 😕 נסה לשלוח שוב.');
+    return sendRich(
+      chatId,
+      '⚠️ <b>נפלתי באמצע</b>\n\nנסה לשלוח שוב.\n' +
+        `<blockquote expandable>${esc(String(err.message || err).slice(0, 400))}</blockquote>`
+    );
   }
 
-  const { actions, text: agentText } = result;
+  const { actions, text: agentText, diag } = result;
 
   // Rolling conversation log — lets the next message continue this exchange.
   const actionSummary = actions.map((a) =>
@@ -368,7 +372,18 @@ async function processWithAgent(chatId, userContent, rawText) {
 
   // No write — plain answer / clarification question
   if (!actions.length) {
-    return sendRich(chatId, agentText ? safeHtml(agentText) : 'לא הבנתי, נסה לנסח שוב.');
+    if (agentText) return sendRich(chatId, safeHtml(agentText));
+    // Nothing written and nothing said. That is a bug on my side, not a message
+    // the user phrased badly — say so, and carry the reason so it is debuggable
+    // from the chat instead of from the server logs.
+    console.error('empty turn:', JSON.stringify(diag));
+    const d = diag || {};
+    return sendRich(
+      chatId,
+      '⚠️ <b>לא הצלחתי לענות</b>\n\nזו תקלה אצלי, לא בניסוח שלך.\nנסה לשלוח שוב.\n' +
+        `<blockquote expandable>stop=${esc(String(d.stop))} · rounds=${d.rounds} · pauses=${d.pauses} · ${d.ms}ms` +
+        `${(d.toolErrors || []).length ? `\n${esc(d.toolErrors.join('\n')).slice(0, 500)}` : ''}</blockquote>`
+    );
   }
 
   // Writes happened — confirmation block(s) + day summary + undo button(s)
