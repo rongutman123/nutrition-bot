@@ -45,7 +45,7 @@ describe('code-first: dictionary text', () => {
     seedFood();
     await post(handler, textUpdate('בננה'));
     const kb = lastMessage().reply_markup.inline_keyboard.flat();
-    assert.ok(kb.some((b) => b.callback_data.endsWith(':0.5')), 'half button');
+    assert.ok(kb.some((b) => b.callback_data.startsWith('askqty:')), 'quantity button');
     assert.match(lastMessage().text, /כמות ברירת מחדל/);
   });
 
@@ -95,7 +95,7 @@ describe('code-first: barcodes', () => {
     const meal = db.rows('meals')[0];
     assert.equal(meal.items[0].grams, 250);
     const kb = lastMessage().reply_markup.inline_keyboard.flat();
-    assert.ok(kb.some((b) => b.callback_data.startsWith('qty:')), 'quantity buttons present');
+    assert.ok(kb.some((b) => b.callback_data.startsWith('askqty:')), 'quantity button present');
   });
 
   test('an Open Food Facts hit is logged AND remembered with its barcode', async () => {
@@ -131,12 +131,13 @@ describe('code-first: barcodes', () => {
     assert.equal(claudeCalls.length, 0);
   });
 
-  test('the ½ button halves a just-logged meal', async () => {
+  test('the quantity button halves a just-logged barcode meal', async () => {
     seedFood({ alias: 'קוטג', barcode: '7290004131074', serving_grams: 250, kcal_per_100g: 121 });
     await post(handler, textUpdate('7290004131074'));
     const mealId = db.rows('meals')[0].id;
 
-    await post(handler, callbackUpdate(`qty:${mealId}:0.5`));
+    await post(handler, callbackUpdate(`askqty:${mealId}`));
+    await post(handler, textUpdate('125 גרם', { replyTo: lastMessage().text.replace(/<[^>]+>/g, '') }));
     assert.equal(db.rows('meals')[0].items[0].grams, 125);
     assert.equal(claudeCalls.length, 0);
   });
@@ -429,6 +430,76 @@ describe('the conversation log must not leak into a new log entry', () => {
     const sys = claudeCalls[0].system;
     assert.match(sys, /היסטוריית השיחה אינה מקור לערכים/);
     assert.match(sys, /תאריך: תמיד היום ועכשיו/);
+  });
+});
+
+describe('quantity button, backdating, weekly view', () => {
+  test('the amount prompt recomputes a package meal by count', async () => {
+    seedFood({ alias: 'מק דאבל', serving_grams: null, kcal_per_100g: null, package: { kcal: 272, protein: 22, carbs: 25.2, fat: 9.6, unit: 'מנה' } });
+    await post(handler, textUpdate('מק דאבל'));
+    assert.equal(Math.round(db.rows('meals')[0].totals.calories), 272);
+
+    const btn = lastMessage().reply_markup.inline_keyboard.flat().find((b) => b.callback_data.startsWith('askqty:'));
+    assert.ok(btn, 'the quantity button is offered');
+    await post(handler, callbackUpdate(btn.callback_data));
+    const prompt = lastMessage();
+    assert.equal(prompt.reply_markup.force_reply, true);
+
+    await post(handler, textUpdate('2', { replyTo: prompt.text.replace(/<[^>]+>/g, '') }));
+    assert.equal(Math.round(db.rows('meals')[0].totals.calories), 544);
+    assert.equal(claudeCalls.length, 0);
+  });
+
+  test('the amount prompt recomputes a weighed meal by grams', async () => {
+    seedFood({ alias: 'אורז', serving_grams: 200, kcal_per_100g: 130, protein_per_100g: 2.7, carbs_per_100g: 28, fat_per_100g: 0.3 });
+    await post(handler, textUpdate('אורז'));
+    assert.equal(Math.round(db.rows('meals')[0].totals.calories), 260);
+
+    const btn = lastMessage().reply_markup.inline_keyboard.flat().find((b) => b.callback_data.startsWith('askqty:'));
+    await post(handler, callbackUpdate(btn.callback_data));
+    await post(handler, textUpdate('150 גרם', { replyTo: lastMessage().text.replace(/<[^>]+>/g, '') }));
+
+    const meal = db.rows('meals')[0];
+    assert.equal(meal.items[0].grams, 150);
+    assert.equal(Math.round(meal.totals.calories), 195);
+  });
+
+  test('grams on a weightless package explains instead of guessing', async () => {
+    seedFood({ alias: 'חטיף', serving_grams: null, kcal_per_100g: null, package: { kcal: 210, unit: 'יחידה' } });
+    await post(handler, textUpdate('חטיף'));
+    const btn = lastMessage().reply_markup.inline_keyboard.flat().find((b) => b.callback_data.startsWith('askqty:'));
+    await post(handler, callbackUpdate(btn.callback_data));
+    await post(handler, textUpdate('150 גרם', { replyTo: lastMessage().text.replace(/<[^>]+>/g, '') }));
+
+    assert.match(lastMessage().text, /אין לי משקל/);
+    assert.equal(Math.round(db.rows('meals')[0].totals.calories), 210, 'unchanged');
+  });
+
+  test('"אתמול 2 לחמניות" logs to yesterday, in code', async () => {
+    seedFood({ alias: 'לחמניה', serving_grams: 90, kcal_per_100g: 270, protein_per_100g: 8.9, carbs_per_100g: 51, fat_per_100g: 2.2 });
+    await post(handler, textUpdate('אתמול 2 לחמניות'));
+
+    const meal = db.rows('meals')[0];
+    assert.equal(meal.day_key, new Date(Date.now() - 864e5).toISOString().slice(0, 10));
+    assert.equal(meal.items[0].grams, 180);
+    assert.match(lastMessage().text, /נרשם לתאריך/);
+    assert.equal(claudeCalls.length, 0);
+  });
+
+  test('"שלשום בננה" goes two days back', async () => {
+    seedFood();
+    await post(handler, textUpdate('שלשום בננה'));
+    assert.equal(db.rows('meals')[0].day_key, new Date(Date.now() - 2 * 864e5).toISOString().slice(0, 10));
+  });
+
+  test('the weekly summary lists every day and marks the misses', async () => {
+    seedMeal(CHAT, {});
+    await post(handler, callbackUpdate('q:week'));
+    const t = lastMessage().text;
+    assert.match(t, /השבוע/);
+    assert.match(t, /לא נרשם/, 'days with nothing logged are shown, not hidden');
+    assert.match(t, /ממוצע/);
+    assert.equal(claudeCalls.length, 0);
   });
 });
 

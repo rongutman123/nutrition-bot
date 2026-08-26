@@ -13,6 +13,7 @@ import {
 import {
   parseMealText, parseCorrection, applyCorrectionToItems, parseMeasurementText,
   parseBarcodeDigits, parseLabelAnswer, parseFoodValues, findFood,
+  extractDayOffset, parseAmount,
 } from '../lib/parser.js';
 import { decodeBarcode } from '../lib/barcode.js';
 import { caloriesChart, proteinChart, weightChart, accuracyChart, renderChart, isOver } from '../lib/charts.js';
@@ -383,6 +384,7 @@ async function onMessage(msg) {
         '• <i>"בננה"</i> או <i>"150 גרם אורז"</i> — מהמילון, מיידי\n' +
         '• 📷 <b>תמונת ברקוד</b> או הספרות שלו — זיהוי אוטומטי\n' +
         '• <i>"רק חצי"</i> / <i>"בלי הגבינה"</i> / <i>"90 גרם"</i> — תיקון\n' +
+        '• <i>"אתמול 2 לחמניות"</i> — רישום לימים קודמים\n' +
         '• <i>"נשקלתי 95.8 מותן 105"</i> — מדידות + אחוז שומן\n\n' +
         'מאכל חדש? אציג כפתורים מהמאגר הישראלי — ואזכור אותו.\n' +
         'ניסוח חופשי? כפתור 🤖 תמיד שם.\n\n' +
@@ -421,6 +423,13 @@ async function tryCodeFirst(chatId, msg, text) {
     return true;
   }
 
+  // answer to the "📏 שנה כמות" prompt
+  const qtyAsk = (msg.reply_to_message?.text || '').match(/#כמות:(\S+)/);
+  if (qtyAsk) {
+    await applyAmount(chatId, qtyAsk[1], text);
+    return true;
+  }
+
   // answer to the one-time label questionnaire (arrives as a reply)
   const pending = (msg.reply_to_message?.text || '').match(/ברקוד (\d{8,14})/);
   if (pending) {
@@ -451,6 +460,10 @@ async function tryCodeFirst(chatId, msg, text) {
     }
   }
 
+  // "אתמול 2 לחמניות" — take the day off the message and log to that date
+  const { days: backDays, rest: foodText } = extractDayOffset(text);
+  const forDay = backDays ? dayKey(new Date(Date.now() - backDays * 864e5)) : null;
+
   // the meal parser — dictionary, saved meals, quantities
   const ctx = await getContext(chatId);
 
@@ -473,10 +486,12 @@ async function tryCodeFirst(chatId, msg, text) {
     }
   }
 
-  const parsed = parseMealText(text, ctx);
+  const parsed = parseMealText(foodText, ctx);
 
   if (parsed.type === 'meal') {
-    const result = await execLogMeal(chatId, text, { items: parsed.items, confidence: 'high' });
+    const result = await execLogMeal(chatId, text, {
+      items: parsed.items, confidence: 'high', ...(forDay ? { date: forDay } : {}),
+    });
     if (result.ok) {
       await logUsage({ chat_id: chatId, route: 'parser', kind: 'log_meal', snippet: text.slice(0, 80) });
       await logChatTurn(chatId, 'user', text);
@@ -496,7 +511,7 @@ async function tryCodeFirst(chatId, msg, text) {
   }
 
   if (parsed.type === 'saved') {
-    const result = await execLogSaved(chatId, text, { name: parsed.name });
+    const result = await execLogSaved(chatId, text, { name: parsed.name, ...(forDay ? { date: forDay } : {}) });
     if (result.ok) {
       await logUsage({ chat_id: chatId, route: 'parser', kind: 'log_saved', snippet: text.slice(0, 80) });
       await confirmActions(chatId, [result]);
@@ -540,6 +555,52 @@ async function applyCorrection(chatId, corr, text) {
   return true;
 }
 
+/* Recompute a logged meal from a typed amount — grams or a count. Everything
+   scales linearly off what is already stored, so this works for a packaged
+   product and a weighed food alike without going back to the dictionary. */
+async function applyAmount(chatId, mealId, text) {
+  const amt = parseAmount(text);
+  if (!amt) {
+    return sendRich(chatId, 'לא הבנתי את הכמות 🤔\n\n⚖️ <i>150 גרם</i>\n🔢 <i>2</i> · <i>חצי</i>');
+  }
+  const { data: meal } = await sb.from('meals').select('*').eq('id', mealId).eq('chat_id', chatId).maybeSingle();
+  if (!meal) return send(chatId, 'הרישום כבר לא קיים.');
+
+  const items = meal.items || [];
+  let factor, portion;
+  if (amt.grams != null) {
+    const cur = items.reduce((a, it) => a + (Number(it.grams) || 0), 0);
+    if (!(cur > 0)) {
+      return sendRich(chatId, '⚖️ <b>אין לי משקל לרישום הזה</b>\n\nזה מוצר ארוז ללא משקל ידוע — נסה בכמות יחידות במקום, למשל <i>2</i>.');
+    }
+    factor = amt.grams / cur;
+    portion = `${amt.grams} גרם`;
+  } else {
+    // a count is relative to what one logged unit already is
+    const units = Number(items[0]?.units) || 1;
+    factor = amt.count / units;
+    portion = null;
+  }
+  if (!(factor > 0)) return send(chatId, 'הכמות לא תקינה.');
+
+  const scaled = items.map((it) => {
+    const out = scaleItem(it, factor);
+    if (portion && items.length === 1) out.portion = portion;
+    else if (amt.count != null && items.length === 1) {
+      const unit = String(it.portion || '').replace(/^[\d.]+\s*/, '').replace(/^חצי\s*/, '') || 'מנה';
+      out.portion = amt.count === 1 ? unit : amt.count === 0.5 ? `חצי ${unit}` : `${amt.count} ${unit}`;
+      out.units = amt.count;
+    }
+    out.quantity_source = 'user_explicit';
+    return out;
+  });
+
+  const result = await execUpdateMeal(chatId, { meal_id: mealId, items: scaled, confidence: meal.confidence });
+  if (!result.ok) return send(chatId, 'לא הצלחתי לעדכן.');
+  await logUsage({ chat_id: chatId, route: 'menu', kind: 'qty', snippet: text.slice(0, 40) });
+  return confirmActions(chatId, [result], { extraRows: qtyRows(mealId) });
+}
+
 /* ---------------- barcode flow (no AI) ---------------- */
 
 const r1i = (x) => Math.round((x || 0) * 10) / 10;
@@ -562,10 +623,10 @@ const parseServingGrams = (s) => {
   return m ? Number(m[1]) : null;
 };
 
-const qtyRows = (mealId) => [[
-  { text: '½ חצי', callback_data: `qty:${mealId}:0.5` },
-  { text: '×2 כפול', callback_data: `qty:${mealId}:2` },
-]];
+const qtyRows = (mealId) => [[{ text: '📏 שנה כמות', callback_data: `askqty:${mealId}` }]];
+
+/* The prompt carries the meal id so the reply identifies itself. */
+const QTY_TAG = (id) => `#כמות:${id}`;
 
 async function handleBarcode(chatId, code) {
   const info = await execLookupBarcode(chatId, { barcode: code });
@@ -749,6 +810,7 @@ async function cmdQuestions(chatId) {
   return sendRich(chatId, '❓ <b>מה תרצה לדעת?</b>', {
     reply_markup: {
       inline_keyboard: [
+        [{ text: '📅 סיכום השבוע — יום ביום', callback_data: 'q:week' }],
         [{ text: '📋 מה אכלתי היום', callback_data: 'q:today' }],
         [{ text: '🥩 חלבון — 7 ימים אחרונים', callback_data: 'q:protein7' }],
         [{ text: '🔥 ממוצע קלוריות — 7 ימים', callback_data: 'q:avg7' }],
@@ -785,6 +847,25 @@ async function answerQuestion(chatId, metric) {
     const l = logged(ks);
     return l.length ? Math.round(l.reduce((a, k) => a + days[k][f], 0) / l.length) : 0;
   };
+
+  if (metric === 'week') {
+    const DOW = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'];
+    const lines = week.map((k) => {
+      const d = days[k];
+      const cal = Math.round(d.calories);
+      if (!cal) return `· <b>${DOW[new Date(k).getDay()]}׳</b> ${ddmm(k)} — <i>לא נרשם</i>`;
+      const mark = cal > goals.calories * 1.1 ? '🔺' : cal < goals.calories * 0.9 ? '⚡' : '✅';
+      return `${mark} <b>${DOW[new Date(k).getDay()]}׳</b> ${ddmm(k)} — <b>${n(cal)}</b> קק"ל · 🥩 ${Math.round(d.protein)}`;
+    });
+    const l = logged(week);
+    return sendRich(
+      chatId,
+      `📅 <b>השבוע</b> — ${l.length} ימים עם רישום\n\n${lines.join('\n')}\n\n` +
+        `🔥 ממוצע <b>${n(avg(week, 'calories'))}</b> מתוך ${n(goals.calories)}\n` +
+        `🥩 חלבון ממוצע <b>${avg(week, 'protein')}</b> מתוך ${goals.protein}\n` +
+        `<blockquote expandable>✅ בטווח היעד · ⚡ מתחת ב-10%+ · 🔺 מעל ב-10%+\nימים בלי רישום לא נספרים בממוצע.</blockquote>`
+    );
+  }
 
   if (metric === 'protein7') {
     const lines = week.map((k) => {
@@ -1369,19 +1450,22 @@ async function onCallback(cb) {
     return answerQuestion(chatId, data.slice(2));
   }
 
-  // Quantity adjustment on a just-logged meal (½ / ×2)
-  if (data.startsWith('qty:')) {
-    const [, mealId, factorS] = data.split(':');
-    const factor = Number(factorS);
-    if (!(factor > 0)) return ack();
-    const { data: meal } = await sb.from('meals').select('*').eq('id', mealId).eq('chat_id', chatId).maybeSingle();
+  // "📏 שנה כמות" — ask, then recompute from whatever he types
+  if (data.startsWith('askqty:')) {
+    const mealId = data.slice(7);
+    const { data: meal } = await sb.from('meals').select('items').eq('id', mealId).eq('chat_id', chatId).maybeSingle();
     if (!meal) return ack('לא נמצא');
-    const items = (meal.items || []).map((it) => scaleItem(it, factor));
-    const result = await execUpdateMeal(chatId, { meal_id: mealId, items, confidence: meal.confidence });
-    if (!result.ok) return ack('לא הצלחתי לעדכן');
-    await ack('עודכן ✔️');
-    await logUsage({ chat_id: chatId, route: 'menu', kind: 'qty' });
-    return confirmActions(chatId, [result]);
+    await ack();
+    const it = (meal.items || [])[0] || {};
+    const cur = it.portion || (Number.isFinite(Number(it.grams)) ? `${it.grams} גרם` : '—');
+    return sendRich(
+      chatId,
+      `📏 <b>כמה זה היה?</b>  <code>${QTY_TAG(mealId)}</code>\n\n` +
+        `⚖️ במשקל — <i>150 גרם</i>\n` +
+        `🔢 או בכמות — <i>2</i> · <i>חצי</i> · <i>1.5</i>\n\n` +
+        `<i>עכשיו רשום: ${esc(String(cur))}</i>`,
+      { reply_markup: { force_reply: true, input_field_placeholder: 'למשל: 150 גרם, או 2' } }
+    );
   }
 
   // A pick from the Israeli-database suggestions: log it and learn the alias.
