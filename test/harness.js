@@ -7,6 +7,9 @@ process.env.AGENT_BOT_TOKEN ||= 'TESTTOKEN';
 process.env.AGENT_SECRET_TOKEN ||= 'test-secret';
 process.env.ANTHROPIC_API_KEY ||= 'fake-anthropic';
 process.env.AGENT_HEIGHT_CM ||= '172';
+// The legacy suites exercise the full agent on every message — pin the old
+// routing. Code-first tests flip this per-test and restore it.
+process.env.AGENT_MODE ||= 'agent';
 
 import { __reset, __db } from './fakes/supabase.js';
 const { __resetLookupCache } = await import('../lib/agent-core.js');
@@ -157,10 +160,13 @@ export function makeRes() {
   return res;
 }
 
-export function textUpdate(text, { chat = CHAT, id } = {}) {
+export function textUpdate(text, { chat = CHAT, id, replyTo } = {}) {
   return {
     update_id: id ?? ++updateId,
-    message: { message_id: 1, chat: { id: chat }, text },
+    message: {
+      message_id: 1, chat: { id: chat }, text,
+      ...(replyTo ? { reply_to_message: { message_id: 9, text: replyTo } } : {}),
+    },
   };
 }
 

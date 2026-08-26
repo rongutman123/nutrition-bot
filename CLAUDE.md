@@ -14,13 +14,38 @@ Until Ron says otherwise, **never edit `api/telegram.js` or `lib/claude.js`**.
 ## Layout
 
 ```
-api/agent.js         webhook + all presentation (Telegram formatting, menus, charts, commands)
-lib/agent-core.js    the agent: context building, system prompt, tools, agent loop, undo
+api/agent.js         webhook + all presentation + the code-first pipeline
+lib/parser.js        deterministic Hebrew meal/correction/measurement parsing — no LLM
+lib/barcode.js       barcode decoding from photos (zxing-wasm) — no LLM
+lib/agent-core.js    context building, system prompts (full + lite), tools, agent loop, undo
 lib/charts.js        QuickChart configs — only aggregates leave the process
 lib/db.js            shared with the old bot
 schema-agent.sql     accumulated DDL for the agent's tables
-test/                134 tests, no network
+test/                179 tests, no network
 ```
+
+## Architecture: code-first (since 2026-08-26)
+
+Claude is NOT in the default path. Every message runs through code:
+commands/buttons → barcode digits → label-questionnaire reply → correction
+templates → measurement template → the meal parser (dictionary + fuzzy) →
+Israeli-DB suggestion buttons. Anything unresolved gets a "לא זיהיתי" message
+with buttons — and the AI runs **only** when the user taps 🤖.
+
+The 🤖 button runs a **lite agent**: `AGENT_LITE_MODEL` (default
+`claude-haiku-4-5`), a ~⅕-size system prompt (`buildSystemLite`), and 4 tools
+(no web search — unsupported on Haiku's tool variant). A hard monthly budget
+(`AGENT_AI_BUDGET_ILS`, default ₪1) is enforced in code from the `agent_usage`
+table; over budget, the button offers an explicit override.
+
+**Rollback switch:** `AGENT_MODE=agent` (env var in Vercel) restores the old
+everything-through-Claude behavior. The test harness pins this mode for the
+legacy suites; `test/codefirst.test.js` tests the production default.
+
+The parser's iron rule: never guess. Every layer either resolves with full
+confidence or declines to the next one. Prompt caching was evaluated and
+dropped: the lite prompt is smaller than Haiku's 4096-token cacheable minimum,
+and the default path uses no LLM at all.
 
 ## Hard rules
 
@@ -49,8 +74,10 @@ reversed in Hebrew. Write `1,252 מתוך 2,100`.
 
 ## Model
 
-`claude-sonnet-5` (override with `AGENT_MODEL`). **Do not send `temperature`** —
-sampling parameters are rejected with a 400 on Sonnet 5.
+Full agent: `claude-sonnet-5` (override `AGENT_MODEL`) — only used when
+`AGENT_MODE=agent`. Lite agent (the 🤖 button): `claude-haiku-4-5` (override
+`AGENT_LITE_MODEL`). **Do not send `temperature`** — sampling parameters are
+rejected with a 400 on Sonnet 5.
 
 Vercel Hobby caps functions at 60s, so `api/agent.js` sets `maxDuration: 60` and
 the loop budgets itself: `MAX_ROUNDS` tool rounds, `MAX_PAUSES` web-search

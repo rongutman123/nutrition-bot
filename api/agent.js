@@ -5,11 +5,25 @@
 import crypto from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { dayKey, lastDayKeys, getMealsRange, createDashSession } from '../lib/db.js';
-import { getContext, runAgent, undoAction, estimateSplit, getDay, logChatTurn, logUsage } from '../lib/agent-core.js';
+import {
+  getContext, runAgent, undoAction, estimateSplit, getDay, logChatTurn, logUsage,
+  execLogMeal, execUpdateMeal, execDeleteMeal, execRememberFood, execLogMeasurement,
+  execLookupBarcode, execLookupIsraeliFood, execLogSaved, scaleItem,
+} from '../lib/agent-core.js';
+import {
+  parseMealText, parseCorrection, applyCorrectionToItems, parseMeasurementText,
+  parseBarcodeDigits, parseLabelAnswer,
+} from '../lib/parser.js';
+import { decodeBarcode } from '../lib/barcode.js';
 import { caloriesChart, proteinChart, weightChart, accuracyChart, renderChart, isOver } from '../lib/charts.js';
 
 const TOKEN = process.env.AGENT_BOT_TOKEN;
 const API = `https://api.telegram.org/bot${TOKEN}`;
+
+// code-first (default): code and buttons handle everything, the AI runs only
+// from an explicit button tap. AGENT_MODE=agent restores the old
+// every-message-through-Claude behavior — the rollback switch.
+const codeFirst = () => (process.env.AGENT_MODE || 'code-first') !== 'agent';
 
 const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
@@ -291,6 +305,20 @@ async function onMessage(msg) {
       console.error('photo download error:', err);
       return send(chatId, 'לא הצלחתי להוריד את התמונה. נסה לשלוח אותה שוב.');
     }
+    // code-first: a photo is a barcode, decoded by a library — not by an AI.
+    if (codeFirst()) {
+      const code = await decodeBarcode(Buffer.from(img.base64, 'base64'));
+      if (code) return handleBarcode(chatId, code);
+      await logUsage({ chat_id: chatId, route: 'barcode', kind: 'no_decode', ok: false });
+      return sendRich(
+        chatId,
+        '📷 <b>לא זיהיתי ברקוד בתמונה</b>\n\n' +
+          '🔍 נסה צילום קרוב, חד וישר של הברקוד\n' +
+          '🔢 או הקלד את הספרות שמתחתיו\n' +
+          '✍️ או כתוב מה אכלת בטקסט'
+      );
+    }
+
     const caption = (msg.caption || '').trim();
     userContent = [
       { type: 'image', source: { type: 'base64', media_type: img.mediaType, data: img.base64 } },
@@ -313,6 +341,7 @@ async function onMessage(msg) {
     : text === '/dashboard' ? ['dashboard', cmdDashboard]
     : text === '/export' ? ['export', cmdExport]
     : text === '/cost' ? ['cost', cmdCost]
+    : text === BTN.q || text === '/questions' ? ['questions', cmdQuestions]
     : null;
   if (cmd) {
     await logUsage({ chat_id: chatId, route: 'command', kind: cmd[0] });
@@ -323,37 +352,385 @@ async function onMessage(msg) {
     await tg('setMyCommands', { commands: COMMANDS });
     return send(
       chatId,
-      '🤖 <b>היי! אני סוכן התזונה שלך</b>\n' +
+      '🥗 <b>היי! אני יומן התזונה שלך</b>\n' +
         `${RULE}\n` +
-        'פשוט כתוב בשפה חופשית:\n' +
-        '• <i>"חזה עוף 200 גרם עם אורז"</i> — רישום\n' +
-        '• <i>"הלחמנייה הייתה 90 גרם"</i> — תיקון\n' +
-        '• <i>"אכלתי בצהריים טונה ושכחתי לרשום"</i> — רישום לאחור\n' +
-        '• <i>"זכור שכף אבקת חלבון היא 33 גרם"</i> — המילון האישי\n' +
-        '• <i>"נשקלתי 95.8, מותן 105"</i> — מדידות + אחוז שומן\n' +
-        '• <i>"כמה חלבון אכלתי היום?"</i> — שאלה (גם על ימים קודמים)\n' +
-        '• <i>"תעדכן יעד חלבון ל-150"</i> — יעדים\n' +
-        '• <i>"מתכון לפנקייק: 2 ביצים, 60 גרם שיבולת שועל…"</i> — מתכונים\n' +
-        '• <i>"תשמור את זה בשם השייק שלי"</i> — ארוחות חוזרות\n' +
-        '• 📷 תמונה של אוכל, תווית או <b>ברקוד</b>\n\n' +
-        '📋 /saved · /foods · /dashboard · /export\n\n' +
+        'ככה רושמים:\n' +
+        '• <i>"בננה"</i> או <i>"150 גרם אורז"</i> — מהמילון, מיידי\n' +
+        '• 📷 <b>תמונת ברקוד</b> או הספרות שלו — זיהוי אוטומטי\n' +
+        '• <i>"רק חצי"</i> / <i>"בלי הגבינה"</i> / <i>"90 גרם"</i> — תיקון\n' +
+        '• <i>"נשקלתי 95.8 מותן 105"</i> — מדידות + אחוז שומן\n\n' +
+        'מאכל חדש? אציג כפתורים מהמאגר הישראלי — ואזכור אותו.\n' +
+        'ניסוח חופשי? כפתור 🤖 תמיד שם.\n\n' +
+        '📋 /saved · /foods · /dashboard · /export · /cost\n\n' +
         'כל רישום מגיע עם כפתור <b>בטל</b> — טעות מתקנים בלחיצה.',
       { reply_markup: MAIN_KEYBOARD }
     );
+  }
+
+  // The code-first pipeline: barcode digits → questionnaire answer →
+  // correction → measurement → meal parser. Anything unresolved gets buttons,
+  // and the AI runs only from an explicit tap.
+  if (codeFirst()) {
+    if (await tryCodeFirst(chatId, msg, text)) return;
+    return unknownFlow(chatId, text);
   }
 
   await tg('sendChatAction', { chat_id: chatId, action: 'typing' });
   return processWithAgent(chatId, text, text);
 }
 
+/* ---------------- the code-first pipeline ---------------- */
+
+async function tryCodeFirst(chatId, msg, text) {
+  // typed barcode digits
+  const digits = parseBarcodeDigits(text);
+  if (digits) {
+    await handleBarcode(chatId, digits);
+    return true;
+  }
+
+  // answer to the one-time label questionnaire (arrives as a reply)
+  const pending = (msg.reply_to_message?.text || '').match(/ברקוד (\d{8,14})/);
+  if (pending) {
+    const ans = parseLabelAnswer(text);
+    if (ans) {
+      await completeLabelAnswer(chatId, pending[1], ans);
+    } else {
+      await sendRich(
+        chatId,
+        'לא הצלחתי לקרוא את זה 🤔\n\nכתוב: שם, קלוריות, חלבון, פחמימות, שומן — מופרדים בפסיקים, ל-100 גרם.\nלמשל: <i>קוטג׳ תנובה 5%, 121, 11.7, 3.7, 5</i>'
+      );
+    }
+    return true;
+  }
+
+  // corrections about the last meal ("רק חצי", "בלי הגבינה", "150 גרם")
+  const corr = parseCorrection(text);
+  if (corr && (await applyCorrection(chatId, corr, text))) return true;
+
+  // measurements ("נשקלתי 95.8 מותן 105")
+  const meas = parseMeasurementText(text);
+  if (meas) {
+    const result = await execLogMeasurement(chatId, meas);
+    if (result.ok) {
+      await logUsage({ chat_id: chatId, route: 'parser', kind: 'log_measurement', snippet: text.slice(0, 80) });
+      await confirmActions(chatId, [result]);
+      return true;
+    }
+  }
+
+  // the meal parser — dictionary, saved meals, quantities
+  const ctx = await getContext(chatId);
+  const parsed = parseMealText(text, ctx);
+
+  if (parsed.type === 'meal') {
+    const result = await execLogMeal(chatId, text, { items: parsed.items, confidence: 'high' });
+    if (result.ok) {
+      await logUsage({ chat_id: chatId, route: 'parser', kind: 'log_meal', snippet: text.slice(0, 80) });
+      await logChatTurn(chatId, 'user', text);
+      await logChatTurn(chatId, 'assistant', `נרשם: ${parsed.items.map((i) => i.name).join(', ')} (${Math.round(result.totals.calories)} קק"ל)`);
+      await confirmActions(chatId, [result]);
+      return true;
+    }
+  }
+
+  if (parsed.type === 'saved') {
+    const result = await execLogSaved(chatId, text, { name: parsed.name });
+    if (result.ok) {
+      await logUsage({ chat_id: chatId, route: 'parser', kind: 'log_saved', snippet: text.slice(0, 80) });
+      await confirmActions(chatId, [result]);
+      return true;
+    }
+  }
+
+  if (parsed.type === 'unknown_food') {
+    await logChatTurn(chatId, 'user', text);
+    await tzSuggest(chatId, parsed.name, parsed.grams);
+    return true;
+  }
+
+  return false;
+}
+
+/* Correction ops target the last meal of today. Returns false to fall through
+   (maybe the text was food after all). */
+async function applyCorrection(chatId, corr, text) {
+  const rows = await getDay(chatId);
+  if (!rows.length) return false;
+  const last = rows[rows.length - 1];
+
+  let result;
+  if (corr.op === 'delete') {
+    result = await execDeleteMeal(chatId, { meal_id: last.id });
+  } else {
+    const items = applyCorrectionToItems(corr, last.items || []);
+    if (!items) return false;
+    result = await execUpdateMeal(chatId, { meal_id: last.id, items, confidence: last.confidence });
+  }
+  if (!result.ok) return false;
+
+  await logUsage({ chat_id: chatId, route: 'parser', kind: 'correction', snippet: text.slice(0, 80) });
+  await logChatTurn(chatId, 'user', text);
+  await logChatTurn(chatId, 'assistant', corr.op === 'delete' ? 'נמחקה הארוחה האחרונה' : 'תוקנה הארוחה האחרונה');
+  await confirmActions(chatId, [result]);
+  return true;
+}
+
+/* ---------------- barcode flow (no AI) ---------------- */
+
+const r1i = (x) => Math.round((x || 0) * 10) / 10;
+
+function itemFromPer100(name, p, grams, source_type, quantity_source) {
+  const f = grams / 100;
+  return {
+    name, grams: r1i(grams),
+    calories: Math.round((p.kcal || 0) * f),
+    protein: r1i((p.protein || 0) * f),
+    carbs: r1i((p.carbs || 0) * f),
+    fat: r1i((p.fat || 0) * f),
+    ...(p.fiber != null ? { fiber: r1i(p.fiber * f) } : {}),
+    source_type, quantity_source,
+  };
+}
+
+const parseServingGrams = (s) => {
+  const m = String(s || '').match(/(\d+(?:\.\d+)?)\s*(?:g|גרם|ml|מ"ל)/i);
+  return m ? Number(m[1]) : null;
+};
+
+const qtyRows = (mealId) => [[
+  { text: '½ חצי', callback_data: `qty:${mealId}:0.5` },
+  { text: '×2 כפול', callback_data: `qty:${mealId}:2` },
+]];
+
+async function handleBarcode(chatId, code) {
+  const info = await execLookupBarcode(chatId, { barcode: code });
+  if (!info.ok) return send(chatId, 'ברקוד לא תקין — צריך 8 עד 14 ספרות.');
+
+  if (info.found) {
+    const fromDictionary = info.source === 'personal';
+    let alias = fromDictionary ? info.alias : String(info.product || '').slice(0, 40);
+    let servingG = Number(info.serving_grams) || parseServingGrams(info.serving_size);
+
+    if (!fromDictionary) {
+      // first scan of this product — remember it, so the next scan is instant
+      await execRememberFood(chatId, {
+        alias, product: info.product, barcode: code,
+        ...(servingG ? { serving_grams: servingG } : {}),
+        kcal_per_100g: info.per100g.kcal,
+        ...(info.per100g.protein != null ? { protein_per_100g: info.per100g.protein } : {}),
+        ...(info.per100g.carbs != null ? { carbs_per_100g: info.per100g.carbs } : {}),
+        ...(info.per100g.fat != null ? { fat_per_100g: info.per100g.fat } : {}),
+      });
+    }
+
+    const grams = servingG || 100;
+    const item = itemFromPer100(alias, info.per100g, grams, fromDictionary ? 'personal_food' : 'label', 'default');
+    const result = await execLogMeal(chatId, `ברקוד ${code}`, { items: [item], confidence: 'high' });
+    await logUsage({ chat_id: chatId, route: 'barcode', kind: 'log_meal', snippet: `${code} ${alias}`.slice(0, 80) });
+    const note = fromDictionary
+      ? 'טעיתי בכמות? כפתור למטה, או "150 גרם"'
+      : `זוהה: ${esc(info.product)} · נשמר במילון — הסריקה הבאה מיידית`;
+    return confirmActions(chatId, [result], { extraRows: qtyRows(result.mealId), note });
+  }
+
+  // not in any database — a one-time questionnaire, then remembered forever.
+  // The barcode rides in the question text, so the reply identifies itself.
+  await logUsage({ chat_id: chatId, route: 'barcode', kind: 'miss', snippet: code });
+  return sendRich(
+    chatId,
+    `🔍 ברקוד <code>${code}</code> לא נמצא במאגרים\n\n` +
+      'פעם אחת בלבד — מהתווית שעל האריזה, ל-100 גרם:\n' +
+      '<i>שם המוצר, קלוריות, חלבון, פחמימות, שומן</i>\n\n' +
+      'למשל: <i>קוטג׳ תנובה 5%, 121, 11.7, 3.7, 5</i>',
+    { reply_markup: { force_reply: true, input_field_placeholder: 'שם, קלוריות, חלבון, פחמימות, שומן' } }
+  );
+}
+
+async function completeLabelAnswer(chatId, code, ans) {
+  const alias = ans.name.slice(0, 40);
+  await execRememberFood(chatId, {
+    alias, product: ans.name, barcode: code,
+    kcal_per_100g: ans.kcal,
+    ...(ans.protein != null ? { protein_per_100g: ans.protein } : {}),
+    ...(ans.carbs != null ? { carbs_per_100g: ans.carbs } : {}),
+    ...(ans.fat != null ? { fat_per_100g: ans.fat } : {}),
+    ...(ans.serving_grams ? { serving_grams: ans.serving_grams } : {}),
+  });
+  const grams = ans.serving_grams || 100;
+  const item = itemFromPer100(alias, ans, grams, 'label', 'default');
+  const result = await execLogMeal(chatId, `ברקוד ${code}`, { items: [item], confidence: 'high' });
+  await logUsage({ chat_id: chatId, route: 'barcode', kind: 'label_saved', snippet: `${code} ${alias}`.slice(0, 80) });
+  return confirmActions(chatId, [result], {
+    extraRows: qtyRows(result.mealId),
+    note: 'נשמר במילון — הסריקה הבאה של המוצר תזוהה מיד',
+  });
+}
+
+/* ---------------- Israeli-database suggestions (buttons, no AI) ---------------- */
+
+/* callback_data is capped at 64 bytes — truncate on a UTF-8 boundary. */
+function utf8Trunc(s, maxBytes) {
+  let out = String(s || '');
+  while (Buffer.byteLength(out, 'utf8') > maxBytes) out = out.slice(0, -1);
+  return out;
+}
+
+const SERVING_UNITS = new Set(['גביע', 'יחידה', 'מנה', 'פרוסה', 'בקבוק', 'פחית', 'כוס']);
+const pickServing = (measures = []) =>
+  measures.find((m) => SERVING_UNITS.has(String(m.unit || '').trim()))?.grams || null;
+
+async function tzSuggest(chatId, name, grams) {
+  const r = await execLookupIsraeliFood(chatId, { query: name, limit: 3 });
+  await logUsage({ chat_id: chatId, route: 'parser', kind: 'tz_suggest', snippet: name });
+
+  if (!r.ok || !r.found || !r.results.length) return unknownFlow(chatId, name, { alreadyLogged: true });
+
+  const rows = r.results.slice(0, 3).map((res, i) => [{
+    text: `${res.name.slice(0, 28)} · ${Math.round(res.per100g.kcal)} קק"ל ל-100 ג`,
+    callback_data: `tz:${i}:${grams || 0}:${utf8Trunc(name, 44)}`,
+  }]);
+  rows.push([{ text: '🤖 אף אחד מאלה — נסה עם AI', callback_data: 'ai' }]);
+
+  return sendRich(
+    chatId,
+    `🔍 "<b>${esc(name)}</b>" עוד לא במילון\n\nמצאתי במאגר משרד הבריאות — בחר את המתאים:`,
+    { reply_markup: { inline_keyboard: rows } }
+  );
+}
+
+/* ---------------- the unknown flow — buttons, and AI only on a tap ---------------- */
+
+async function unknownFlow(chatId, text, { alreadyLogged = false } = {}) {
+  if (!alreadyLogged) {
+    await logChatTurn(chatId, 'user', text);
+    await logUsage({ chat_id: chatId, route: 'parser', kind: 'no_parse', snippet: text.slice(0, 80) });
+  }
+  return sendRich(
+    chatId,
+    '🤔 <b>לא זיהיתי</b>\n\n' +
+      '✍️ הכי טוב: "מאכל + כמות" — למשל <i>150 גרם אורז</i>\n' +
+      '📷 או תמונת ברקוד\n\nאו:',
+    {
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '🤖 נסה עם AI', callback_data: 'ai' },
+          { text: '🔍 חפש במאגר', callback_data: `tzq:${utf8Trunc(text, 56)}` },
+        ]],
+      },
+    }
+  );
+}
+
+/* Monthly AI spend, priced from the usage table — the hard budget. */
+const AI_BUDGET_ILS = Number(process.env.AGENT_AI_BUDGET_ILS || 1);
+
+async function aiSpentThisMonth(chatId) {
+  const now = new Date();
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+  const { data } = await sb
+    .from('agent_usage').select('*')
+    .eq('chat_id', chatId).eq('route', 'claude').gte('ts', monthStart).limit(2000);
+  return (data || []).reduce((a, r) => a + rowCostIls(r), 0);
+}
+
+async function lastUserText(chatId) {
+  const { data } = await sb
+    .from('agent_chat_log').select('id, content')
+    .eq('chat_id', chatId).eq('role', 'user')
+    .order('id', { ascending: false }).limit(1);
+  return data?.[0]?.content || null;
+}
+
+/* ---------------- questions menu (answered from the DB, no AI) ---------------- */
+
+async function cmdQuestions(chatId) {
+  return sendRich(chatId, '❓ <b>מה תרצה לדעת?</b>', {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '📋 מה אכלתי היום', callback_data: 'q:today' }],
+        [{ text: '🥩 חלבון — 7 ימים אחרונים', callback_data: 'q:protein7' }],
+        [{ text: '🔥 ממוצע קלוריות — 7 ימים', callback_data: 'q:avg7' }],
+        [{ text: '⚖️ השבוע מול שבוע שעבר', callback_data: 'q:compare' }],
+      ],
+    },
+  });
+}
+
+function byDay(meals, keys) {
+  const days = Object.fromEntries(keys.map((k) => [k, { calories: 0, protein: 0 }]));
+  for (const m of meals) {
+    if (!days[m.day_key]) continue;
+    days[m.day_key].calories += Number(m.totals?.calories) || 0;
+    days[m.day_key].protein += Number(m.totals?.protein) || 0;
+  }
+  return days;
+}
+
+async function answerQuestion(chatId, metric) {
+  if (metric === 'today') return cmdToday(chatId);
+
+  const keys14 = lastDayKeys(14);
+  const [meals, goalsRow] = await Promise.all([
+    getMealsRange(chatId, keys14),
+    sb.from('goals').select('*').eq('chat_id', chatId).maybeSingle(),
+  ]);
+  const goals = goalsRow.data || { calories: 2000, protein: 130, carbs: 200, fat: 65 };
+  const days = byDay(meals, keys14);
+  const week = keys14.slice(7); // last 7, oldest → newest
+  const prevWeek = keys14.slice(0, 7);
+  const logged = (ks) => ks.filter((k) => days[k].calories > 0);
+  const avg = (ks, f) => {
+    const l = logged(ks);
+    return l.length ? Math.round(l.reduce((a, k) => a + days[k][f], 0) / l.length) : 0;
+  };
+
+  if (metric === 'protein7') {
+    const lines = week.map((k) => {
+      const v = Math.round(days[k].protein);
+      const mark = v >= goals.protein * 0.9 ? '✅' : v > 0 ? '▫️' : '·';
+      return `${mark} ${ddmm(k)} — <b>${v}</b> ג`;
+    });
+    return sendRich(
+      chatId,
+      `🥩 <b>${avg(week, 'protein')}</b> ג חלבון בממוצע ליום\n🎯 יעד: ${goals.protein} ג\n\n${lines.join('\n')}`
+    );
+  }
+
+  if (metric === 'avg7') {
+    const a = avg(week, 'calories');
+    const diff = a - goals.calories;
+    const line = diff <= 0
+      ? `⚡ <b>${n(-diff)}</b> קק"ל מתחת ליעד בממוצע`
+      : `🔺 <b>${n(diff)}</b> קק"ל מעל היעד בממוצע`;
+    return sendRich(
+      chatId,
+      `🔥 <b>${n(a)}</b> קק"ל בממוצע ליום (7 ימים)\n🎯 יעד: ${n(goals.calories)}\n\n${line}\n<i>נספרו ${logged(week).length} ימים עם רישום</i>`
+    );
+  }
+
+  if (metric === 'compare') {
+    const cal = [avg(week, 'calories'), avg(prevWeek, 'calories')];
+    const pro = [avg(week, 'protein'), avg(prevWeek, 'protein')];
+    const arrow = (cur, prev) => (prev === 0 ? '' : cur < prev ? ` (↓${n(prev - cur)})` : cur > prev ? ` (↑${n(cur - prev)})` : ' (=)');
+    return sendRich(
+      chatId,
+      `⚖️ <b>השבוע מול שבוע שעבר</b> (ממוצע יומי)\n\n` +
+        `🔥 קלוריות: <b>${n(cal[0])}</b>${arrow(cal[0], cal[1])}\n` +
+        `🥩 חלבון: <b>${pro[0]}</b> ג${arrow(pro[0], pro[1])}\n\n` +
+        `<i>שבוע שעבר: ${n(cal[1])} קק"ל · ${pro[1]} ג חלבון</i>`
+    );
+  }
+}
+
 /* Shared agent flow for text and photos: run, then confirm/answer. */
-async function processWithAgent(chatId, userContent, rawText) {
+async function processWithAgent(chatId, userContent, rawText, opts = {}) {
   const t0 = Date.now();
   const snippet = String(rawText || '').slice(0, 80);
   let result;
   try {
     const ctx = await getContext(chatId);
-    result = await runAgent(chatId, userContent, ctx, rawText);
+    result = await runAgent(chatId, userContent, ctx, rawText, opts);
   } catch (err) {
     console.error('agent error:', err);
     await logUsage({ chat_id: chatId, route: 'claude', kind: 'error', latency_ms: Date.now() - t0, snippet, ok: false });
@@ -405,7 +782,15 @@ async function processWithAgent(chatId, userContent, rawText) {
     );
   }
 
-  // Writes happened — confirmation block(s) + day summary + undo button(s)
+  // Writes happened — confirmation block(s) + day summary + undo button(s).
+  // Drop trivial echoes ("נרשם 👍") — show only comments that add information.
+  const note = agentText && agentText.length >= 25 && agentText.length <= 200 ? safeHtml(agentText) : '';
+  return confirmActions(chatId, actions, { note });
+}
+
+/* One confirmation renderer for every write path — agent and code-first alike:
+   action block(s), day status, one expandable, undo button(s). */
+async function confirmActions(chatId, actions, { note = '', extraRows = [] } = {}) {
   const [goalsRow, rows] = await Promise.all([
     sb.from('goals').select('*').eq('chat_id', chatId).maybeSingle(),
     getDay(chatId),
@@ -415,8 +800,7 @@ async function processWithAgent(chatId, userContent, rawText) {
   let body = actions.map(actionMain).join('\n\n');
   const mealWrite = actions.some((a) => a.kind === 'log_meal' || a.kind === 'update_meal' || a.kind === 'delete_meal');
   if (mealWrite) body += `\n\n${dayStatus(rows, goals)}`;
-  // Drop trivial echoes ("נרשם 👍") — show only comments that add information.
-  if (agentText && agentText.length >= 25 && agentText.length <= 200) body += `\n\n💬 <i>${safeHtml(agentText)}</i>`;
+  if (note) body += `\n\n💬 <i>${note}</i>`;
 
   // One expandable at the end for everything secondary.
   const details = [
@@ -425,12 +809,15 @@ async function processWithAgent(chatId, userContent, rawText) {
   ];
   if (details.length) body += `\n<blockquote expandable>${details.join('\n')}</blockquote>`;
 
-  const undoRow = actions.map((a, i) => ({
-    text: actions.length > 1 ? `↩️ בטל ${i + 1}` : '↩️ בטל',
-    callback_data: `undo:${a.actionId}`,
-  }));
+  const undoRow = actions
+    .filter((a) => a.actionId)
+    .map((a, i) => ({
+      text: actions.length > 1 ? `↩️ בטל ${i + 1}` : '↩️ בטל',
+      callback_data: `undo:${a.actionId}`,
+    }));
 
-  return sendRich(chatId, body, { reply_markup: { inline_keyboard: [undoRow] } });
+  const keyboard = [...extraRows, ...(undoRow.length ? [undoRow] : [])];
+  return sendRich(chatId, body, keyboard.length ? { reply_markup: { inline_keyboard: keyboard } } : {});
 }
 
 /* ---------------- saved meals & recipes menu ---------------- */
@@ -524,10 +911,13 @@ async function cmdFoods(chatId) {
    the one that saves typing, and trends. Everything else lives in the
    Telegram commands menu, which costs nothing. */
 
-const BTN = { left: '⚡ כמה נשאר לי', saved: '⭐ שמורים', trends: '📊 מגמות' };
+const BTN = { left: '⚡ כמה נשאר לי', saved: '⭐ שמורים', trends: '📊 מגמות', q: '❓ שאלות' };
 
 const MAIN_KEYBOARD = {
-  keyboard: [[{ text: BTN.left }, { text: BTN.saved }, { text: BTN.trends }]],
+  keyboard: [
+    [{ text: BTN.left }, { text: BTN.q }],
+    [{ text: BTN.saved }, { text: BTN.trends }],
+  ],
   resize_keyboard: true,
   is_persistent: true,
   input_field_placeholder: 'מה אכלת?',
@@ -861,6 +1251,84 @@ async function onCallback(cb) {
     await ack('מכין…');
     await logUsage({ chat_id: chatId, route: 'menu', kind: `chart:${metric}` });
     return sendTrend(chatId, metric, 30);
+  }
+
+  // Questions menu — answered from the database, no AI
+  if (data.startsWith('q:')) {
+    await ack();
+    await logUsage({ chat_id: chatId, route: 'menu', kind: data });
+    return answerQuestion(chatId, data.slice(2));
+  }
+
+  // Quantity adjustment on a just-logged meal (½ / ×2)
+  if (data.startsWith('qty:')) {
+    const [, mealId, factorS] = data.split(':');
+    const factor = Number(factorS);
+    if (!(factor > 0)) return ack();
+    const { data: meal } = await sb.from('meals').select('*').eq('id', mealId).eq('chat_id', chatId).maybeSingle();
+    if (!meal) return ack('לא נמצא');
+    const items = (meal.items || []).map((it) => scaleItem(it, factor));
+    const result = await execUpdateMeal(chatId, { meal_id: mealId, items, confidence: meal.confidence });
+    if (!result.ok) return ack('לא הצלחתי לעדכן');
+    await ack('עודכן ✔️');
+    await logUsage({ chat_id: chatId, route: 'menu', kind: 'qty' });
+    return confirmActions(chatId, [result]);
+  }
+
+  // A pick from the Israeli-database suggestions: log it and learn the alias.
+  // The search is re-run by name (deterministic within seconds) — callback_data
+  // is too small to carry the food itself.
+  if (data.startsWith('tz:')) {
+    const [, idxS, gramsS, ...rest] = data.split(':');
+    const q = rest.join(':');
+    await ack('רושם…');
+    const r = await execLookupIsraeliFood(chatId, { query: q, limit: 3 });
+    const pick = r.ok && r.found ? r.results[Number(idxS)] : null;
+    if (!pick) return send(chatId, 'החיפוש השתנה בינתיים — כתוב את המאכל שוב 🙏');
+
+    const servingG = pickServing(pick.measures);
+    const grams = Number(gramsS) > 0 ? Number(gramsS) : servingG || 100;
+    await execRememberFood(chatId, {
+      alias: q, product: pick.name,
+      kcal_per_100g: pick.per100g.kcal,
+      ...(pick.per100g.protein != null ? { protein_per_100g: pick.per100g.protein } : {}),
+      ...(pick.per100g.carbs != null ? { carbs_per_100g: pick.per100g.carbs } : {}),
+      ...(pick.per100g.fat != null ? { fat_per_100g: pick.per100g.fat } : {}),
+      ...(servingG ? { serving_grams: servingG } : {}),
+    });
+    const item = itemFromPer100(q, pick.per100g, grams, 'israeli_db', Number(gramsS) > 0 ? 'user_explicit' : 'default');
+    const result = await execLogMeal(chatId, q, { items: [item], confidence: 'high' });
+    await logUsage({ chat_id: chatId, route: 'menu', kind: 'tz_pick', snippet: q });
+    return confirmActions(chatId, [result], {
+      extraRows: qtyRows(result.mealId),
+      note: `מקור: ${esc(pick.name)} (מאגר משרד הבריאות) · נשמר במילון`,
+    });
+  }
+
+  // "חפש במאגר" from the unknown flow
+  if (data.startsWith('tzq:')) {
+    await ack('מחפש…');
+    return tzSuggest(chatId, data.slice(4), null);
+  }
+
+  // The AI button — the only way Claude runs. Budget-capped in code.
+  if (data === 'ai' || data === 'ai!') {
+    const last = await lastUserText(chatId);
+    if (!last) return ack('לא מצאתי מה לנתח');
+    if (data === 'ai') {
+      const spent = await aiSpentThisMonth(chatId);
+      if (spent >= AI_BUDGET_ILS) {
+        await ack();
+        return sendRich(
+          chatId,
+          `🚫 <b>תקציב ה-AI החודשי נוצל</b> (${money(spent)})\n\nנפתח מחדש ב-1 בחודש.`,
+          { reply_markup: { inline_keyboard: [[{ text: 'בכל זאת הפעל הפעם', callback_data: 'ai!' }]] } }
+        );
+      }
+    }
+    await ack('חושב…');
+    await tg('sendChatAction', { chat_id: chatId, action: 'typing' });
+    return processWithAgent(chatId, last, last, { lite: true });
   }
 
   // One-tap log from the /saved menu
