@@ -41,3 +41,48 @@ on conflict (chat_id, alias) do update set
   variants         = coalesce(my_foods.variants,         excluded.variants),
   barcode          = coalesce(my_foods.barcode,          excluded.barcode),
   updated_at       = now();
+
+
+-- Batch 2: foods from MULTI-ITEM meals in the Telegram history.
+-- Portion and calories come from your own confirmations; the macro split is
+-- standard reference values, reconciled against those calories.
+-- Existing rows are only filled in, never overwritten.
+
+with c as (select chat_id from goals order by chat_id limit 1)
+insert into my_foods (chat_id, alias, aliases, product, serving_grams,
+                      kcal_per_100g, protein_per_100g, carbs_per_100g, fat_per_100g)
+select c.chat_id, v.* from c, (values
+  ('אבקת חלבון', ARRAY['אבקת חלבון וניל','אול אין','all in','סקופ חלבון','כף מדידה אבקת חלבון']::text[], 'אבקת חלבון All In וניל עוגיות', 33, 394, 75, 10, 5),
+  ('חלב דל לקטוז', ARRAY['חלב 2% דל לקטוז','חלב ללא לקטוז','חלב דל לקטוז 2%']::text[], 'חלב 2% דל לקטוז', 300, 50, 3.4, 4.8, 2),
+  ('צלי בקר', ARRAY['צלי','בקר צלוי']::text[], 'צלי בקר', 120, 165, 26, 0, 7),
+  ('תפוחי אדמה בתנור', ARRAY['תפוחי אדמה','תפו״א בתנור','תפוחי אדמה אפויים']::text[], 'תפוחי אדמה בתנור', 150, 90, 2, 19, 0.9),
+  ('דבש', ARRAY['כפית דבש','כף דבש']::text[], 'דבש', 25, 320, 0.3, 79, 0),
+  ('בננה', ARRAY['בננה בינונית','בננות']::text[], 'בננה', 120, 89, 1.1, 23, 0.3),
+  ('סלט ירקות', ARRAY['סלט','סלט ירקות טרי']::text[], 'סלט ירקות', 90, 40, 1.5, 5.5, 1.4),
+  ('ברוקולי', ARRAY['ברוקולי מבושל','ברוקולי מאודה']::text[], 'ברוקולי מבושל', 150, 34, 2.8, 5, 0.4),
+  ('מק דאבל', ARRAY['מקדונלדס דאבל','דאבל','מק-דאבל','דאבל צ''יזבורגר']::text[], 'McDonald''s מק דאבל', 140, 194, 14.2, 16.4, 8.9),
+  ('חלה', ARRAY['פרוסת חלה','פרוסות חלה']::text[], 'חלה', 80, 280, 8.8, 52.5, 2.5),
+  ('טונה בשמן', ARRAY['טונה','פחית טונה','קופסת טונה']::text[], 'טונה בשמן', 160, 175, 24, 0, 8.2),
+  ('צ''יפס', ARRAY['צ''יפס מטוגן','ציפס']::text[], 'צ''יפס', 150, 300, 3.4, 38, 15),
+  ('טבעות בצל', ARRAY['טבעות בצל מטוגנות','אניון רינגס']::text[], 'טבעות בצל מטוגנות', 80, 250, 3, 28, 14),
+  ('פוטטוס', ARRAY['פוטאטוס','potato wedges','תפוצ׳יפס']::text[], 'פוטטוס', 100, 180, 2.7, 24, 8),
+  ('נקניקיית צ''וריסוס', ARRAY['צוריסוס','צ''וריסוס','נקניקיה']::text[], 'נקניקיית צ''וריסוס', 70, 371, 17, 2, 33),
+  ('רול סושי', ARRAY['סושי','רול קליפורניה']::text[], 'רול סושי', 180, 178, 6.5, 30, 3.7),
+  ('חלב', ARRAY['חלב 3%','חלב 3% שומן']::text[], 'חלב 3% שומן', 100, 62, 3.3, 4.8, 3.3),
+  ('ביצה', ARRAY['ביצה מטוגנת','ביצים']::text[], 'ביצה מטוגנת', 50, 160, 12, 0.8, 12),
+  ('אורז', ARRAY['אורז לבן','אורז מבושל','אורז לבן מבושל']::text[], 'אורז לבן מבושל', 250, 116, 2.4, 25, 0.3),
+  ('גבינה צהובה', ARRAY['גבינה צהובה 9%','פרוסת גבינה צהובה']::text[], 'גבינה צהובה 9%', 25, 192, 25, 1, 9),
+  ('גבינה בולגרית', ARRAY['בולגרית','גבינה בולגרית 5%']::text[], 'גבינה בולגרית 5%', 30, 120, 13, 3, 5),
+  ('חלבון ביצה', ARRAY['חלבוני ביצה','לבן ביצה']::text[], 'חלבון ביצה', 33, 52, 11, 0.7, 0.2),
+  ('בורקס דפי אורז', ARRAY['בורקס אורז','בורקס']::text[], 'בורקס דפי אורז', 250, 264, 6, 30, 13),
+  ('קציצה', ARRAY['קציצות','קציצת בשר']::text[], 'קציצת בשר', 125, 215, 18, 6, 13)
+) as v(alias, aliases, product, serving_grams, kcal_per_100g, protein_per_100g, carbs_per_100g, fat_per_100g)
+on conflict (chat_id, alias) do update set
+  aliases          = array(select distinct unnest(coalesce(my_foods.aliases, '{}'::text[]) || excluded.aliases)),
+  product          = coalesce(my_foods.product,          excluded.product),
+  serving_grams    = coalesce(my_foods.serving_grams,    excluded.serving_grams),
+  kcal_per_100g    = coalesce(my_foods.kcal_per_100g,    excluded.kcal_per_100g),
+  protein_per_100g = coalesce(my_foods.protein_per_100g, excluded.protein_per_100g),
+  carbs_per_100g   = coalesce(my_foods.carbs_per_100g,   excluded.carbs_per_100g),
+  fat_per_100g     = coalesce(my_foods.fat_per_100g,     excluded.fat_per_100g),
+  updated_at       = now();
