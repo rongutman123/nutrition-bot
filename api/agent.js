@@ -12,7 +12,7 @@ import {
 } from '../lib/agent-core.js';
 import {
   parseMealText, parseCorrection, applyCorrectionToItems, parseMeasurementText,
-  parseBarcodeDigits, parseLabelAnswer,
+  parseBarcodeDigits, parseLabelAnswer, parseFoodValues, findFood,
 } from '../lib/parser.js';
 import { decodeBarcode } from '../lib/barcode.js';
 import { caloriesChart, proteinChart, weightChart, accuracyChart, renderChart, isOver } from '../lib/charts.js';
@@ -56,6 +56,11 @@ const send = (chat_id, text, extra = {}) =>
 const ALLOWED = ['b', 'i', 'u', 's', 'code'];
 
 function safeHtml(raw = '') {
+  // Small models slip into markdown despite instructions — convert the common
+  // cases instead of showing literal asterisks.
+  raw = String(raw)
+    .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
+    .replace(/(^|\s)\*([^*\n]+)\*(?=\s|$)/g, '$1<i>$2</i>');
   let out = esc(raw);
   for (const tag of ALLOWED) {
     out = out
@@ -194,7 +199,7 @@ function actionMain(a) {
       a.items.map((it) => `${it.emoji || '🍽'} ${esc(it.name)} — <b>${n(it.calories)}</b>`).join('\n') +
       `\n\n${macroLine}`;
   }
-  if (a.dayKeyUsed && a.dayKeyUsed !== dayKey() && a.kind === 'log_meal') {
+  if (a.dayKeyUsed && a.dayKeyUsed !== dayKey() && (a.kind === 'log_meal' || a.kind === 'update_meal')) {
     out += `\n🗓 נרשם לתאריך ${ddmm(a.dayKeyUsed)}`;
   }
   return out;
@@ -389,6 +394,13 @@ async function tryCodeFirst(chatId, msg, text) {
     return true;
   }
 
+  // An open AI question owns the conversation: the user's short answer goes
+  // back to the same brain, not to the parser ("שלם" is an answer, not a food).
+  if (await aiPending(chatId)) {
+    await runLiteAI(chatId, text);
+    return true;
+  }
+
   // answer to the one-time label questionnaire (arrives as a reply)
   const pending = (msg.reply_to_message?.text || '').match(/ברקוד (\d{8,14})/);
   if (pending) {
@@ -421,6 +433,26 @@ async function tryCodeFirst(chatId, msg, text) {
 
   // the meal parser — dictionary, saved meals, quantities
   const ctx = await getContext(chatId);
+
+  // completing dictionary values by text ("לחמניה: 280 קלוריות ל-100 גרם")
+  const fv = parseFoodValues(text);
+  if (fv) {
+    const existing = findFood(fv.name, ctx.foods);
+    const result = await execRememberFood(chatId, {
+      alias: existing ? existing.alias : fv.name,
+      kcal_per_100g: fv.kcal,
+      ...(fv.protein != null ? { protein_per_100g: fv.protein } : {}),
+      ...(fv.carbs != null ? { carbs_per_100g: fv.carbs } : {}),
+      ...(fv.fat != null ? { fat_per_100g: fv.fat } : {}),
+      ...(fv.serving_grams ? { serving_grams: fv.serving_grams } : {}),
+    });
+    if (result.ok) {
+      await logUsage({ chat_id: chatId, route: 'parser', kind: 'food_values', snippet: text.slice(0, 80) });
+      await confirmActions(chatId, [result]);
+      return true;
+    }
+  }
+
   const parsed = parseMealText(text, ctx);
 
   if (parsed.type === 'meal') {
@@ -462,6 +494,9 @@ async function applyCorrection(chatId, corr, text) {
   let result;
   if (corr.op === 'delete') {
     result = await execDeleteMeal(chatId, { meal_id: last.id });
+  } else if (corr.op === 'backdate') {
+    const date = dayKey(new Date(Date.now() - corr.days * 86_400_000));
+    result = await execUpdateMeal(chatId, { meal_id: last.id, items: last.items, confidence: last.confidence, date });
   } else {
     const items = applyCorrectionToItems(corr, last.items || []);
     if (!items) return false;
@@ -584,7 +619,17 @@ async function tzSuggest(chatId, name, grams) {
   const r = await execLookupIsraeliFood(chatId, { query: name, limit: 3 });
   await logUsage({ chat_id: chatId, route: 'parser', kind: 'tz_suggest', snippet: name });
 
-  if (!r.ok || !r.found || !r.results.length) return unknownFlow(chatId, name, { alreadyLogged: true });
+  if (!r.ok || !r.found || !r.results.length) {
+    // A dedicated dead-end message — repeating "לא זיהיתי" here made the 🔍
+    // button look broken (live bug, 2026-08-26).
+    return sendRich(
+      chatId,
+      `🔍 "<b>${esc(name)}</b>" לא נמצא גם במאגר משרד הבריאות\n\n` +
+        `✍️ תן לי ערכים: <i>"${esc(name)}: 250 קלוריות ל-100 גרם"</i>\n` +
+        '📷 או תמונת ברקוד של המוצר\n\nאו:',
+      { reply_markup: { inline_keyboard: [[{ text: '🤖 נסה עם AI', callback_data: 'ai' }]] } }
+    );
+  }
 
   const rows = r.results.slice(0, 3).map((res, i) => [{
     text: `${res.name.slice(0, 28)} · ${Math.round(res.per100g.kcal)} קק"ל ל-100 ג`,
@@ -632,6 +677,33 @@ async function aiSpentThisMonth(chatId) {
     .from('agent_usage').select('*')
     .eq('chat_id', chatId).eq('route', 'claude').gte('ts', monthStart).limit(2000);
   return (data || []).reduce((a, r) => a + rowCostIls(r), 0);
+}
+
+/* Is the AI mid-conversation? True when the last assistant turn was a lite-AI
+   question (marked 🤖 in the chat log) from the last 10 minutes. */
+async function aiPending(chatId) {
+  const { data } = await sb
+    .from('agent_chat_log').select('id, role, content, created_at')
+    .eq('chat_id', chatId).order('id', { ascending: false }).limit(6);
+  const lastAssistant = (data || []).find((r) => r.role === 'assistant');
+  if (!lastAssistant || !String(lastAssistant.content || '').startsWith('🤖 ')) return false;
+  return Date.now() - new Date(lastAssistant.created_at).getTime() < 10 * 60_000;
+}
+
+/* The single gate to the lite AI — budget-checked unless explicitly forced. */
+async function runLiteAI(chatId, text, { force = false } = {}) {
+  if (!force) {
+    const spent = await aiSpentThisMonth(chatId);
+    if (spent >= AI_BUDGET_ILS) {
+      return sendRich(
+        chatId,
+        `🚫 <b>תקציב ה-AI החודשי נוצל</b> (${money(spent)})\n\nנפתח מחדש ב-1 בחודש.`,
+        { reply_markup: { inline_keyboard: [[{ text: 'בכל זאת הפעל הפעם', callback_data: 'ai!' }]] } }
+      );
+    }
+  }
+  await tg('sendChatAction', { chat_id: chatId, action: 'typing' });
+  return processWithAgent(chatId, text, text, { lite: true });
 }
 
 async function lastUserText(chatId) {
@@ -764,7 +836,10 @@ async function processWithAgent(chatId, userContent, rawText, opts = {}) {
     : a.kind
   ).join(' · ');
   await logChatTurn(chatId, 'user', rawText);
-  await logChatTurn(chatId, 'assistant', [actionSummary, agentText].filter(Boolean).join(' · '));
+  // A lite-AI question is marked 🤖 so the router knows the conversation is
+  // still open and sends the user's answer back here instead of to the parser.
+  const aiQuestion = opts.lite && !actions.length && agentText;
+  await logChatTurn(chatId, 'assistant', (aiQuestion ? '🤖 ' : '') + [actionSummary, agentText].filter(Boolean).join(' · '));
 
   // No write — plain answer / clarification question
   if (!actions.length) {
@@ -783,8 +858,9 @@ async function processWithAgent(chatId, userContent, rawText, opts = {}) {
   }
 
   // Writes happened — confirmation block(s) + day summary + undo button(s).
-  // Drop trivial echoes ("נרשם 👍") — show only comments that add information.
-  const note = agentText && agentText.length >= 25 && agentText.length <= 200 ? safeHtml(agentText) : '';
+  // Drop trivial echoes ("נרשם 👍") — and the lite model's notes entirely: it
+  // echoes the confirmation numbers no matter what the prompt says.
+  const note = !opts.lite && agentText && agentText.length >= 25 && agentText.length <= 200 ? safeHtml(agentText) : '';
   return confirmActions(chatId, actions, { note });
 }
 
@@ -1311,24 +1387,12 @@ async function onCallback(cb) {
     return tzSuggest(chatId, data.slice(4), null);
   }
 
-  // The AI button — the only way Claude runs. Budget-capped in code.
+  // The AI button — the only way Claude starts. Budget-capped in code.
   if (data === 'ai' || data === 'ai!') {
     const last = await lastUserText(chatId);
     if (!last) return ack('לא מצאתי מה לנתח');
-    if (data === 'ai') {
-      const spent = await aiSpentThisMonth(chatId);
-      if (spent >= AI_BUDGET_ILS) {
-        await ack();
-        return sendRich(
-          chatId,
-          `🚫 <b>תקציב ה-AI החודשי נוצל</b> (${money(spent)})\n\nנפתח מחדש ב-1 בחודש.`,
-          { reply_markup: { inline_keyboard: [[{ text: 'בכל זאת הפעל הפעם', callback_data: 'ai!' }]] } }
-        );
-      }
-    }
     await ack('חושב…');
-    await tg('sendChatAction', { chat_id: chatId, action: 'typing' });
-    return processWithAgent(chatId, last, last, { lite: true });
+    return runLiteAI(chatId, last, { force: data === 'ai!' });
   }
 
   // One-tap log from the /saved menu

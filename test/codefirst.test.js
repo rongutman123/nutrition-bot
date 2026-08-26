@@ -202,6 +202,110 @@ describe('code-first: the AI button', () => {
   });
 });
 
+describe('code-first: live-bug regressions (2026-08-26)', () => {
+  test('an answer to an open AI question goes back to the AI, not to the parser', async () => {
+    // the user's live transcript: AI asked "כמה מ"ל?", the answer "שלם" got
+    // routed to the database search and produced nonsense buttons
+    await post(handler, textUpdate('משקה חלבון מולר אפס אחוז'));
+    scriptClaude(say('כמה מ"ל שתית?'));
+    await post(handler, callbackUpdate('ai'));
+    assert.equal(claudeCalls.length, 1);
+
+    scriptClaude(
+      useTool('log_meal', {
+        items: [{ name: 'משקה חלבון מולר', grams: 250, calories: 110, protein: 20, carbs: 3, fat: 0.2, source_type: 'ai_estimate', quantity_source: 'user_explicit' }],
+        confidence: 'medium',
+      }),
+      say('')
+    );
+    await post(handler, textUpdate('שלם'));
+
+    assert.ok(claudeCalls.length >= 2, 'the answer reached the AI');
+    assert.equal(db.rows('meals').length, 1, 'the meal got logged');
+    assert.doesNotMatch(lastMessage().text, /עוד לא במילון/);
+  });
+
+  test('an open AI question hijacks even correction-looking answers', async () => {
+    seedMeal(CHAT, {});
+    await post(handler, textUpdate('משהו מוזר לגמרי שאין במילון'));
+    scriptClaude(say('כמה גרם בערך?'));
+    await post(handler, callbackUpdate('ai'));
+
+    scriptClaude(say('הבנתי, רשמתי חצי'));
+    await post(handler, textUpdate('חצי'));
+
+    // "חצי" was an ANSWER — the seeded meal must not get scaled
+    assert.equal(Math.round(db.rows('meals')[0].totals.calories), 78);
+    assert.equal(claudeCalls.length, 2);
+  });
+
+  test('after the AI writes, the conversation closes and the parser is back', async () => {
+    seedFood();
+    await post(handler, textUpdate('משהו מוזר לגמרי שאין במילון'));
+    scriptClaude(
+      useTool('log_meal', {
+        items: [{ name: 'משהו', grams: 100, calories: 200, protein: 5, carbs: 20, fat: 10, source_type: 'ai_estimate', quantity_source: 'estimated' }],
+        confidence: 'low',
+      }),
+      say('')
+    );
+    await post(handler, callbackUpdate('ai'));
+    assert.equal(db.rows('meals').length, 1);
+
+    await post(handler, textUpdate('בננה'));
+    assert.equal(db.rows('meals').length, 2, 'parsed without the AI');
+    assert.equal(claudeCalls.length, 2, 'no extra AI call');
+  });
+
+  test('a database miss says so explicitly instead of repeating "לא זיהיתי"', async () => {
+    setCkan({ foods: [], measures: {}, units: {} });
+    await post(handler, textUpdate('פלאפל'));
+    assert.match(lastMessage().text, /לא נמצא גם במאגר/);
+    assert.doesNotMatch(lastMessage().text, /לא זיהיתי/);
+    assert.ok(lastMessage().reply_markup.inline_keyboard.flat().some((b) => b.callback_data === 'ai'));
+  });
+
+  test('the /foods value syntax actually completes a partial entry', async () => {
+    seedFood({ alias: 'לחמניה', serving_grams: 90, kcal_per_100g: null, protein_per_100g: null, carbs_per_100g: null, fat_per_100g: null });
+    await post(handler, textUpdate('לחמניה: 280 קלוריות ל-100 גרם, חלבון 9, פחמימות 50, שומן 3'));
+
+    const f = db.rows('my_foods').find((x) => x.alias === 'לחמניה');
+    assert.equal(f.kcal_per_100g, 280);
+    assert.equal(f.protein_per_100g, 9);
+    assert.equal(claudeCalls.length, 0);
+
+    // and from now on it parses as a full food
+    await post(handler, textUpdate('לחמנייה'));
+    const meal = db.rows('meals').at(-1);
+    assert.equal(meal.items[0].calories, Math.round(280 * 0.9));
+  });
+
+  test('"שמור אותו לאתמול" backdates the last meal, and undo restores it', async () => {
+    seedMeal(CHAT, {});
+    await post(handler, textUpdate('שמור אותו לאתמול'));
+
+    const meal = db.rows('meals')[0];
+    const today = meal.day_key !== undefined;
+    assert.ok(today);
+    assert.notEqual(meal.day_key, db.rows('agent_actions')[0].payload.prev.day_key, 'day changed');
+    assert.match(lastMessage().text, /נרשם לתאריך/);
+    assert.equal(claudeCalls.length, 0);
+
+    const undoBtn = lastMessage().reply_markup.inline_keyboard.flat().find((b) => b.callback_data.startsWith('undo:'));
+    await post(handler, callbackUpdate(undoBtn.callback_data));
+    assert.equal(db.rows('meals')[0].day_key, db.rows('agent_actions')[0].payload.prev.day_key, 'undo restored the date');
+  });
+
+  test('markdown bold from the small model renders as HTML, not asterisks', async () => {
+    await post(handler, textUpdate('משהו מוזר לגמרי שאין במילון'));
+    scriptClaude(say('חסר לי **הכמות** כדי לרשום'));
+    await post(handler, callbackUpdate('ai'));
+
+    assert.match(lastMessage().text, /<b>הכמות<\/b>/);
+    assert.doesNotMatch(lastMessage().text, /\*\*/);
+  });
+});
+
 describe('code-first: questions menu', () => {
   test('the menu opens and a question is answered from the DB', async () => {
     seedMeal(CHAT, {});
