@@ -86,3 +86,25 @@ on conflict (chat_id, alias) do update set
   carbs_per_100g   = coalesce(my_foods.carbs_per_100g,   excluded.carbs_per_100g),
   fat_per_100g     = coalesce(my_foods.fat_per_100g,     excluded.fat_per_100g),
   updated_at       = now();
+
+
+-- Whole-package values for the products that come in a fixed unit.
+-- Saying the name logs ONE package by default; an explicit weight still
+-- falls back to the per-100g values. Label facts, stored, not derived.
+
+update my_foods m set package = v.package, updated_at = now()
+from (values
+  ('מק דאבל', '{"grams":140,"kcal":415,"protein":22,"carbs":34,"fat":21,"unit":"מנה"}'::jsonb),
+  ('מעדן פרו חלבון תות', '{"grams":200,"kcal":130,"protein":20,"carbs":11.2,"fat":0,"unit":"גביע"}'::jsonb),
+  ('קוטג''', '{"grams":300,"kcal":363,"protein":29.1,"carbs":11.1,"fat":15,"unit":"גביע"}'::jsonb),
+  ('משקה חלבון קפה', '{"grams":350,"kcal":143,"protein":25,"carbs":10,"fat":0.4,"unit":"בקבוק"}'::jsonb),
+  ('משקה קפה מולר', '{"grams":350,"kcal":158,"protein":25.2,"carbs":14.7,"fat":0,"unit":"בקבוק"}'::jsonb),
+  ('גלידה פרו קרים שוקולד', '{"grams":120,"kcal":288,"protein":20,"carbs":37.7,"fat":8.8,"unit":"גביע"}'::jsonb),
+  ('אבקת חלבון', '{"grams":33,"kcal":130,"protein":24.8,"carbs":3.3,"fat":1.7,"unit":"סקופ"}'::jsonb),
+  ('במבה', '{"grams":60,"kcal":326,"protein":5.8,"carbs":33,"fat":19.2,"unit":"שקית"}'::jsonb),
+  ('במבה נוגט', '{"grams":30,"kcal":159,"protein":2.4,"carbs":17.1,"fat":9.3,"unit":"שקית"}'::jsonb),
+  ('טונה בשמן', '{"grams":160,"kcal":280,"protein":38.4,"carbs":0,"fat":13.1,"unit":"פחית"}'::jsonb),
+  ('רוזאלה', '{"grams":120,"kcal":528,"protein":7.2,"carbs":62.4,"fat":27.8,"unit":"יחידה"}'::jsonb),
+  ('לחמניה', '{"grams":90,"kcal":243,"protein":8,"carbs":46,"fat":2,"unit":"יחידה"}'::jsonb)
+) as v(alias, package)
+where m.alias = v.alias and m.package is null;

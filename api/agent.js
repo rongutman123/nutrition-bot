@@ -483,10 +483,13 @@ async function tryCodeFirst(chatId, msg, text) {
       await logChatTurn(chatId, 'assistant', `נרשם: ${parsed.items.map((i) => i.name).join(', ')} (${Math.round(result.totals.calories)} קק"ל)`);
       // A dictionary entry can carry a wrong default weight (a bad AI save is
       // permanent and free once learned) — keep the fix one tap away.
-      const usedDefault = parsed.items.some((i) => i.quantity_source === 'default');
+      // A packaged product logged as one whole package is exactly right — no
+      // nudge. A weight-based food on its default serving is a guess worth
+      // flagging, since a wrong learned weight is otherwise invisible.
+      const weighed = parsed.items.filter((i) => i.quantity_source === 'default' && !i.fromPackage);
       await confirmActions(chatId, [result], {
         extraRows: qtyRows(result.mealId),
-        ...(usedDefault ? { note: 'כמות ברירת מחדל מהמילון — תקן בכפתור, או כתוב "150 גרם"' } : {}),
+        ...(weighed.length ? { note: 'כמות ברירת מחדל מהמילון — תקן בכפתור, או כתוב "150 גרם"' } : {}),
       });
       return true;
     }
@@ -986,12 +989,15 @@ async function cmdFoods(chatId) {
     );
   }
 
-  const done = foods.filter((f) => f.kcal_per_100g != null);
-  const partial = foods.filter((f) => f.kcal_per_100g == null);
+  const done = foods.filter((f) => f.kcal_per_100g != null || f.package?.kcal != null);
+  const partial = foods.filter((f) => f.kcal_per_100g == null && f.package?.kcal == null);
 
   const line = (f) => {
     let s = `• <b>${esc(f.alias)}</b>`;
-    if (f.serving_grams) s += ` · ${f.serving_grams} ג`;
+    if (f.package?.kcal != null) {
+      s += ` · 📦 ${esc(f.package.unit || 'אריזה')} שלמה: <b>${n(f.package.kcal)}</b> קק"ל`;
+      if (f.package.grams) s += ` (${f.package.grams} ג)`;
+    } else if (f.serving_grams) s += ` · ${f.serving_grams} ג`;
     if (f.kcal_per_100g != null) s += ` · ${f.kcal_per_100g} קק"ל/100`;
     if (f.aliases?.length) s += `\n   <i>גם: ${esc(f.aliases.join(' · '))}</i>`;
     return s;

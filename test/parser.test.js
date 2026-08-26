@@ -93,6 +93,52 @@ describe('the meal parser', () => {
     assert.equal(r.items[0].name, 'מק דאבל', 'logged under the canonical name');
   });
 
+  test('a packaged product logs the whole package by default, from its own values', () => {
+    const foods = [{
+      alias: 'מק דאבל', aliases: ['דאבל'], serving_grams: 140,
+      kcal_per_100g: 296, protein_per_100g: 16, carbs_per_100g: 24, fat_per_100g: 15,
+      package: { grams: 140, kcal: 415, protein: 22, carbs: 34, fat: 21, unit: 'מנה' },
+    }];
+    const r = parseMealText('מק דאבל', { foods });
+    assert.equal(r.type, 'meal');
+    const it = r.items[0];
+    assert.equal(it.calories, 415, 'the label number, not 296 x 1.4 = 414');
+    assert.equal(it.protein, 22);
+    assert.equal(it.portion, 'מנה');
+    assert.equal(it.grams, 140);
+  });
+
+  test('a count multiplies whole packages', () => {
+    const foods = [{ alias: 'מעדן פרו', package: { grams: 200, kcal: 130, protein: 20, carbs: 11, fat: 0, unit: 'גביע' } }];
+    const two = parseMealText('2 מעדן פרו', { foods });
+    assert.equal(two.items[0].calories, 260);
+    assert.equal(two.items[0].portion, '2 גביע');
+    const half = parseMealText('חצי מעדן פרו', { foods });
+    assert.equal(half.items[0].calories, 65);
+    assert.equal(half.items[0].portion, 'חצי גביע');
+  });
+
+  test('an explicit weight overrides the package and uses per-100g', () => {
+    const foods = [{
+      alias: 'קוטג', serving_grams: 300, kcal_per_100g: 121, protein_per_100g: 9.7, carbs_per_100g: 3.7, fat_per_100g: 5,
+      package: { grams: 300, kcal: 363, protein: 29.1, carbs: 11.1, fat: 15, unit: 'גביע' },
+    }];
+    const whole = parseMealText('קוטג', { foods });
+    assert.equal(whole.items[0].calories, 363, 'default is the whole tub');
+
+    const weighed = parseMealText('100 גרם קוטג', { foods });
+    assert.equal(weighed.items[0].calories, 121, 'an explicit weight wins');
+    assert.equal(weighed.items[0].grams, 100);
+  });
+
+  test('a package entry needs no per-100g values at all', () => {
+    const foods = [{ alias: 'חטיף', package: { kcal: 210, protein: 3, carbs: 25, fat: 11, unit: 'יחידה' } }];
+    const r = parseMealText('חטיף', { foods });
+    assert.equal(r.type, 'meal');
+    assert.equal(r.items[0].calories, 210);
+    assert.equal(r.items[0].grams, null);
+  });
+
   test('questions are not meals', () => {
     assert.equal(parseMealText('כמה חלבון אכלתי היום?', ctx).type, 'no_parse');
     assert.equal(parseMealText('מה אכלתי אתמול', ctx).type, 'no_parse');

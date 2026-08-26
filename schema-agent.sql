@@ -153,3 +153,12 @@ alter table agent_usage enable row level security;
 -- The parser matches on alias OR any entry here, so a food learned once is
 -- recognized however it is phrased next time — no LLM call.
 alter table my_foods add column if not exists aliases text[];
+
+-- ---------- packaged products ----------
+-- Some foods are not weight-dependent: a McDouble, a cottage tub, a protein
+-- drink. Their natural unit is the whole package, and the label's per-package
+-- numbers are the authoritative fact — not something to derive from per-100g
+-- (rounding drifts, and the package weight is often unknown or wrong).
+-- Shape: {"grams":140,"kcal":415,"protein":22,"carbs":34,"fat":21,"unit":"מנה"}
+-- When present, saying the food's name logs ONE WHOLE PACKAGE by default.
+alter table my_foods add column if not exists package jsonb;
