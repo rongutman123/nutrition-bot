@@ -33,10 +33,14 @@ Israeli-DB suggestion buttons. Anything unresolved gets a "לא זיהיתי" me
 with buttons — and the AI runs **only** when the user taps 🤖.
 
 The 🤖 button runs a **lite agent**: `AGENT_LITE_MODEL` (default
-`claude-haiku-4-5`), a ~⅕-size system prompt (`buildSystemLite`), and 4 tools
-(no web search — unsupported on Haiku's tool variant). A hard monthly budget
-(`AGENT_AI_BUDGET_ILS`, default ₪1) is enforced in code from the `agent_usage`
-table; over budget, the button offers an explicit override.
+`claude-sonnet-5` — Haiku was tried live on 2026-08-26 and rejected: clunky
+Hebrew, clarification loops, invented restaurant values), a ~⅕-size system
+prompt (`buildSystemLite`), 4 tools + web search for brand/restaurant values
+(the web tool is gated off if the env overrides back to Haiku — its variant
+400s there). A hard monthly budget (`AGENT_AI_BUDGET_ILS`, default ₪1) is
+enforced in code from the `agent_usage` table; over budget, the button offers
+an explicit override. An open lite-AI question is marked 🤖 in the chat log
+and owns the next messages (10-minute window) so answers return to the AI.
 
 **Rollback switch:** `AGENT_MODE=agent` (env var in Vercel) restores the old
 everything-through-Claude behavior. The test harness pins this mode for the
@@ -75,7 +79,7 @@ reversed in Hebrew. Write `1,252 מתוך 2,100`.
 ## Model
 
 Full agent: `claude-sonnet-5` (override `AGENT_MODEL`) — only used when
-`AGENT_MODE=agent`. Lite agent (the 🤖 button): `claude-haiku-4-5` (override
+`AGENT_MODE=agent`. Lite agent (the 🤖 button): `claude-sonnet-5` (override
 `AGENT_LITE_MODEL`). **Do not send `temperature`** — sampling parameters are
 rejected with a 400 on Sonnet 5.
 

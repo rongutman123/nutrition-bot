@@ -80,7 +80,11 @@ async function sendRich(chatId, html, extra = {}) {
   const res = await send(chatId, html, extra);
   if (res?.ok) return res;
   const plain = html.replace(/<[^>]+>/g, '');
-  return tg('sendMessage', { chat_id: chatId, text: plain, ...extra });
+  const res2 = await tg('sendMessage', { chat_id: chatId, text: plain, ...extra });
+  if (res2?.ok) return res2;
+  // Last resort: no markup at all. If the reply_markup itself was what
+  // Telegram rejected, both attempts above fail — a bare answer beats silence.
+  return tg('sendMessage', { chat_id: chatId, text: plain });
 }
 
 /* ---------------- dedupe (DB-backed, survives cold starts) ---------------- */
@@ -263,15 +267,30 @@ export default async function handler(req, res) {
     return res.status(401).send('unauthorized');
   }
 
+  const update = req.body || {};
   try {
-    const update = req.body || {};
     if (update.update_id && !(await firstTimeSeen(update.update_id))) {
       return res.status(200).send('dup');
     }
     if (update.callback_query) await onCallback(update.callback_query);
     else if (update.message) await onMessage(update.message);
   } catch (err) {
+    // Never go silent: a crash the user cannot see cannot be reported or
+    // debugged (there is no server-log access from the phone). Telegram will
+    // not retry either — the dedupe row already marks this update as handled.
     console.error('handler error:', err);
+    const chatId = update.message?.chat?.id || update.callback_query?.message?.chat?.id;
+    if (chatId) {
+      try {
+        await sendRich(
+          chatId,
+          '⚠️ <b>משהו נשבר אצלי בעיבוד ההודעה</b>\n\nנסה לשלוח שוב.\n' +
+            `<blockquote expandable>${esc(String(err?.message || err).slice(0, 400))}</blockquote>`
+        );
+      } catch (err2) {
+        console.error('error report failed too:', err2);
+      }
+    }
   }
   return res.status(200).send('ok');
 }

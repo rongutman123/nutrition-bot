@@ -160,7 +160,7 @@ describe('code-first: the AI button', () => {
     assert.ok(lastMessage().reply_markup.inline_keyboard.flat().some((b) => b.callback_data === 'ai'));
   });
 
-  test('the AI tap runs the lite brain: Haiku, four tools, no web search', async () => {
+  test('the AI tap runs the lite brain: small prompt, web search available', async () => {
     await post(handler, textUpdate('אכלתי משהו קטן אחרי האימון'));
     scriptClaude(
       useTool('log_meal', {
@@ -173,12 +173,11 @@ describe('code-first: the AI button', () => {
 
     assert.ok(claudeCalls.length >= 1);
     const call = claudeCalls[0];
-    assert.match(call.model, /haiku/);
-    assert.equal(call.tools.length, 4);
-    assert.ok(!call.tools.some((t) => t.name === 'web_search'));
+    assert.match(call.model, /sonnet/);
+    assert.equal(call.tools.length, 5, 'four tools + web search');
+    assert.ok(call.tools.some((t) => t.name === 'web_search'), 'restaurant values need the web');
+    assert.ok(call.system.length < 4500, 'the lite prompt, not the full 18-rule one');
     assert.equal(db.rows('meals').length, 1);
-    const u = db.rows('agent_usage').find((r) => r.route === 'claude');
-    assert.match(u.model, /haiku/);
   });
 
   test('the monthly budget cap blocks the button and offers an override', async () => {
@@ -303,6 +302,18 @@ describe('code-first: live-bug regressions (2026-08-26)', () => {
 
     assert.match(lastMessage().text, /<b>הכמות<\/b>/);
     assert.doesNotMatch(lastMessage().text, /\*\*/);
+  });
+});
+
+describe('never silent', () => {
+  test('a crash anywhere in processing still answers the user', async () => {
+    // text as a non-string blows up early in onMessage — any unexpected
+    // throw must produce a visible error, not swallowed silence
+    await post(handler, {
+      update_id: 987001,
+      message: { message_id: 1, chat: { id: CHAT }, text: { boom: true } },
+    });
+    assert.match(lastMessage().text, /נשבר/);
   });
 });
 
