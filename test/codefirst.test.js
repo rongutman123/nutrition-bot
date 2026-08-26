@@ -41,6 +41,32 @@ describe('code-first: dictionary text', () => {
     assert.equal(u.kind, 'log_meal');
   });
 
+  test('a default-weight log offers the quantity fix inline', async () => {
+    seedFood();
+    await post(handler, textUpdate('בננה'));
+    const kb = lastMessage().reply_markup.inline_keyboard.flat();
+    assert.ok(kb.some((b) => b.callback_data.endsWith(':0.5')), 'half button');
+    assert.match(lastMessage().text, /כמות ברירת מחדל/);
+  });
+
+  test('an explicit weight logs without the default-weight nudge', async () => {
+    seedFood({ alias: 'אורז', serving_grams: null, kcal_per_100g: 130, protein_per_100g: 2.7, carbs_per_100g: 28, fat_per_100g: 0.3 });
+    await post(handler, textUpdate('150 גרם אורז'));
+    assert.doesNotMatch(lastMessage().text, /כמות ברירת מחדל/);
+  });
+
+  test('the /foods value syntax overwrites a wrong learned entry', async () => {
+    // live: the AI learned מק דאבל as 305g / 488 kcal — a wrong entry is
+    // permanent and free once in the dictionary, so correcting must overwrite
+    seedFood({ alias: 'מק דאבל', serving_grams: 305, kcal_per_100g: 160, protein_per_100g: 14.1, carbs_per_100g: 12.1, fat_per_100g: 5.9 });
+    await post(handler, textUpdate('מק דאבל: 296 קלוריות ל-100 גרם, חלבון 16, פחמימות 24, שומן 15, מנה 140'));
+
+    const f = db.rows('my_foods').find((x) => x.alias === 'מק דאבל');
+    assert.equal(f.kcal_per_100g, 296, 'overwritten, not merged');
+    assert.equal(f.serving_grams, 140);
+    assert.equal(claudeCalls.length, 0);
+  });
+
   test('corrections work without Claude: half, then delete', async () => {
     seedMeal(CHAT, {});
     await post(handler, textUpdate('רק חצי'));

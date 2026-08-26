@@ -481,7 +481,13 @@ async function tryCodeFirst(chatId, msg, text) {
       await logUsage({ chat_id: chatId, route: 'parser', kind: 'log_meal', snippet: text.slice(0, 80) });
       await logChatTurn(chatId, 'user', text);
       await logChatTurn(chatId, 'assistant', `נרשם: ${parsed.items.map((i) => i.name).join(', ')} (${Math.round(result.totals.calories)} קק"ל)`);
-      await confirmActions(chatId, [result]);
+      // A dictionary entry can carry a wrong default weight (a bad AI save is
+      // permanent and free once learned) — keep the fix one tap away.
+      const usedDefault = parsed.items.some((i) => i.quantity_source === 'default');
+      await confirmActions(chatId, [result], {
+        extraRows: qtyRows(result.mealId),
+        ...(usedDefault ? { note: 'כמות ברירת מחדל מהמילון — תקן בכפתור, או כתוב "150 גרם"' } : {}),
+      });
       return true;
     }
   }
