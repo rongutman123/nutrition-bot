@@ -124,3 +124,26 @@ create table if not exists saved_meals (
 
 alter table recipes enable row level security;
 alter table saved_meals enable row level security;
+
+-- Token/usage accounting: one row per handled message, every route (free and
+-- Claude alike), so /cost can price the traffic and show the free share.
+create table agent_usage (
+  id          bigint generated always as identity primary key,
+  chat_id     bigint not null,
+  ts          timestamptz not null default now(),
+  route       text not null,        -- 'claude' | 'parser' | 'barcode' | 'menu' | 'command'
+  kind        text,                 -- 'log_meal' | 'correction' | 'question' | ...
+  model       text,                 -- null on the free routes
+  input_tokens        int,
+  output_tokens       int,
+  cache_write_tokens  int,
+  cache_read_tokens   int,
+  rounds      int,
+  latency_ms  int,
+  snippet     text,
+  ok          boolean not null default true
+);
+
+create index agent_usage_chat_ts on agent_usage (chat_id, ts desc);
+
+alter table agent_usage enable row level security;

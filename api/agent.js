@@ -5,7 +5,7 @@
 import crypto from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { dayKey, lastDayKeys, getMealsRange, createDashSession } from '../lib/db.js';
-import { getContext, runAgent, undoAction, estimateSplit, getDay, logChatTurn } from '../lib/agent-core.js';
+import { getContext, runAgent, undoAction, estimateSplit, getDay, logChatTurn, logUsage } from '../lib/agent-core.js';
 import { caloriesChart, proteinChart, weightChart, accuracyChart, renderChart, isOver } from '../lib/charts.js';
 
 const TOKEN = process.env.AGENT_BOT_TOKEN;
@@ -305,13 +305,18 @@ async function onMessage(msg) {
 
   // Keyboard taps arrive as ordinary text — route them before the agent so a
   // tap is instant and costs no API call.
-  switch (text) {
-    case '/today': case BTN.left: return cmdToday(chatId);
-    case '/trends': case BTN.trends: return cmdTrends(chatId);
-    case '/saved': case BTN.saved: return cmdSaved(chatId);
-    case '/foods': return cmdFoods(chatId);
-    case '/dashboard': return cmdDashboard(chatId);
-    case '/export': return cmdExport(chatId);
+  const cmd =
+    text === '/today' || text === BTN.left ? ['today', cmdToday]
+    : text === '/trends' || text === BTN.trends ? ['trends', cmdTrends]
+    : text === '/saved' || text === BTN.saved ? ['saved', cmdSaved]
+    : text === '/foods' ? ['foods', cmdFoods]
+    : text === '/dashboard' ? ['dashboard', cmdDashboard]
+    : text === '/export' ? ['export', cmdExport]
+    : text === '/cost' ? ['cost', cmdCost]
+    : null;
+  if (cmd) {
+    await logUsage({ chat_id: chatId, route: 'command', kind: cmd[0] });
+    return cmd[1](chatId);
   }
 
   if (text === '/start') {
@@ -343,12 +348,15 @@ async function onMessage(msg) {
 
 /* Shared agent flow for text and photos: run, then confirm/answer. */
 async function processWithAgent(chatId, userContent, rawText) {
+  const t0 = Date.now();
+  const snippet = String(rawText || '').slice(0, 80);
   let result;
   try {
     const ctx = await getContext(chatId);
     result = await runAgent(chatId, userContent, ctx, rawText);
   } catch (err) {
     console.error('agent error:', err);
+    await logUsage({ chat_id: chatId, route: 'claude', kind: 'error', latency_ms: Date.now() - t0, snippet, ok: false });
     return sendRich(
       chatId,
       '⚠️ <b>נפלתי באמצע</b>\n\nנסה לשלוח שוב.\n' +
@@ -357,6 +365,17 @@ async function processWithAgent(chatId, userContent, rawText) {
   }
 
   const { actions, text: agentText, diag } = result;
+
+  // Cost accounting — tokens exactly as the API reported them, per message.
+  const u = result.usage || {};
+  await logUsage({
+    chat_id: chatId, route: 'claude',
+    kind: actions[0]?.kind || 'answer',
+    model: u.model,
+    input_tokens: u.input, output_tokens: u.output,
+    cache_write_tokens: u.cacheWrite, cache_read_tokens: u.cacheRead,
+    rounds: diag?.rounds, latency_ms: Date.now() - t0, snippet,
+  });
 
   // Rolling conversation log — lets the next message continue this exchange.
   const actionSummary = actions.map((a) =>
@@ -521,7 +540,77 @@ const COMMANDS = [
   { command: 'foods', description: 'המילון האישי שלי' },
   { command: 'dashboard', description: 'דשבורד מלא בדפדפן' },
   { command: 'export', description: 'ייצוא נתונים לניתוח' },
+  { command: 'cost', description: 'כמה הבוט עולה לי' },
 ];
+
+/* ---------------- /cost — where the tokens went ---------------- */
+
+// USD per million tokens, standard list prices (not the intro discount) — a
+// deliberately conservative estimate. Stored rows keep raw tokens, so a price
+// change here re-prices history correctly.
+const PRICES = [
+  { match: /haiku/, in: 1, out: 5, cw: 1.25, cr: 0.1 },
+  { match: /./, in: 3, out: 15, cw: 3.75, cr: 0.3 }, // sonnet-5 and default
+];
+const ILS_RATE = 3.7;
+
+function rowCostIls(r) {
+  if (!r.model) return 0;
+  const p = PRICES.find((x) => x.match.test(r.model));
+  const usd =
+    ((r.input_tokens || 0) * p.in + (r.output_tokens || 0) * p.out +
+     (r.cache_write_tokens || 0) * p.cw + (r.cache_read_tokens || 0) * p.cr) / 1e6;
+  return usd * ILS_RATE;
+}
+
+const money = (ils) =>
+  ils >= 1 ? `${(Math.round(ils * 100) / 100).toLocaleString('he-IL')} ₪` : `${Math.round(ils * 100)} אג׳`;
+
+async function cmdCost(chatId) {
+  const since = new Date(Date.now() - 30 * 864e5).toISOString();
+  const { data, error } = await sb
+    .from('agent_usage').select('*')
+    .eq('chat_id', chatId).gte('ts', since)
+    .order('ts', { ascending: false }).limit(2000);
+  if (error) return send(chatId, 'לא הצלחתי לקרוא את נתוני השימוש.');
+
+  const rows = data || [];
+  if (!rows.length) return send(chatId, 'אין עדיין נתוני שימוש — הם נאספים מעכשיו על כל הודעה.');
+
+  const today = dayKey();
+  const weekAgo = Date.now() - 7 * 864e5;
+  const inToday = rows.filter((r) => dayKey(new Date(r.ts)) === today);
+  const inWeek = rows.filter((r) => new Date(r.ts).getTime() >= weekAgo);
+  const cost = (rs) => rs.reduce((a, r) => a + rowCostIls(r), 0);
+
+  const claude = rows.filter((r) => r.route === 'claude');
+  const free = rows.length - claude.length;
+  const freePct = Math.round((free / rows.length) * 100);
+  const tok = (f) => claude.reduce((a, r) => a + (r[f] || 0), 0);
+  const avgMs = (rs) => (rs.length ? Math.round(rs.reduce((a, r) => a + (r.latency_ms || 0), 0) / rs.length / 100) / 10 : 0);
+
+  const top = [...claude].sort((a, b) => rowCostIls(b) - rowCostIls(a)).slice(0, 3)
+    .map((r) => `· "${esc(r.snippet || '?')}" — ${money(rowCostIls(r))}`);
+
+  const details = [
+    `טוקנים ב-30 יום: קלט ${n(tok('input_tokens'))} · פלט ${n(tok('output_tokens'))}`,
+    `מטמון: כתיבה ${n(tok('cache_write_tokens'))} · קריאה ${n(tok('cache_read_tokens'))}`,
+    ...(top.length ? ['', 'ההודעות היקרות ביותר:', ...top] : []),
+    '',
+    `לפי מחירון מלא (לא מבצע ההשקה) · שער ${ILS_RATE} ₪/$`,
+  ];
+
+  return sendRich(
+    chatId,
+    `💰 <b>${money(cost(rows))}</b> ב-30 הימים האחרונים\n\n` +
+      `📅 היום: <b>${money(cost(inToday))}</b>\n` +
+      `🗓️ השבוע: <b>${money(cost(inWeek))}</b>\n\n` +
+      `🆓 טופלו בחינם: <b>${freePct}%</b> (${free} מתוך ${rows.length} הודעות)\n` +
+      `🤖 הגיעו ל-Claude: ${claude.length}\n\n` +
+      `⏱️ זמן תשובה ממוצע: Claude ${avgMs(claude)} שנ׳\n` +
+      `<blockquote expandable>${details.join('\n')}</blockquote>`
+  );
+}
 
 /* Instant, Claude-free answer to "what's left" — the most frequent question. */
 async function cmdToday(chatId) {
@@ -770,6 +859,7 @@ async function onCallback(cb) {
   if (data.startsWith('chart:')) {
     const metric = data.slice(6);
     await ack('מכין…');
+    await logUsage({ chat_id: chatId, route: 'menu', kind: `chart:${metric}` });
     return sendTrend(chatId, metric, 30);
   }
 
@@ -796,6 +886,7 @@ async function onCallback(cb) {
   if (!result.ok) return ack('כבר בוטל');
 
   await ack('בוטל ✔️');
+  await logUsage({ chat_id: chatId, route: 'menu', kind: 'undo' });
 
   const [goalsRow, rows] = await Promise.all([
     sb.from('goals').select('*').eq('chat_id', chatId).maybeSingle(),

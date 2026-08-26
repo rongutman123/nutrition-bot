@@ -15,6 +15,7 @@ const TABLES = {
   dash_sessions: { pk: 'token', pkType: 'given', unique: [] },
   recipes: { pk: 'id', pkType: 'serial', unique: [['chat_id', 'name']] },
   saved_meals: { pk: 'id', pkType: 'serial', unique: [['chat_id', 'name']] },
+  agent_usage: { pk: 'id', pkType: 'serial', unique: [] },
 };
 
 const store = new Map();
@@ -63,6 +64,7 @@ const DEFAULTS = {
   dash_sessions: () => ({ verified: false }),
   recipes: () => ({ updated_at: new Date().toISOString() }),
   saved_meals: () => ({ use_count: 0, updated_at: new Date().toISOString() }),
+  agent_usage: () => ({ ts: new Date().toISOString(), ok: true }),
 };
 
 function withPk(table, row) {

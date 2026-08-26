@@ -132,7 +132,11 @@ globalThis.fetch = async (url, init = {}) => {
     }
     const next = claudeQueue.shift();
     if (!next) throw new Error('claude called more times than scripted');
-    return jsonRes(next);
+    // Every real API response carries usage — the default is overridable per script.
+    return jsonRes({
+      usage: { input_tokens: 1000, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      ...next,
+    });
   }
 
   if (origFetch) return origFetch(url, init);
