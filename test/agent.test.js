@@ -127,7 +127,8 @@ describe('log_meal', () => {
     scriptClaude(useTool('log_meal', {
       items: [ITEM()], confidence: 'medium', date: '2026-01-15', meal_time: '08:00',
     }), say(''));
-    await post(handler, textUpdate('רישום לאחור בחורף'));
+    // The message has to name the date — an unrequested one is stripped now.
+    await post(handler, textUpdate('רישום לאחור בחורף — 15.1 בבוקר'));
 
     const [meal] = db.rows('meals');
     assert.match(meal.ts, /\+02:00$/);

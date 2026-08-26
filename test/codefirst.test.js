@@ -367,6 +367,45 @@ describe('learning: the AI teaches the parser', () => {
   });
 });
 
+describe('the conversation log must not leak into a new log entry', () => {
+  const backdatedMeal = (date) => useTool('log_meal', {
+    items: [{ name: 'מק דאבל', grams: 150, calories: 488, protein: 43, carbs: 37, fat: 18, source_type: 'label', quantity_source: 'default' }],
+    confidence: 'high', date, meal_time: '22:00',
+  });
+
+  test('a date the user did not ask for is stripped — the meal lands today', async () => {
+    await post(handler, textUpdate('מק דאבל'));
+    scriptClaude(backdatedMeal('2026-08-25'), say(''));
+    await post(handler, callbackUpdate('ai'));
+
+    const meal = db.rows('meals')[0];
+    const today = new Date().toISOString().slice(0, 10);
+    assert.notEqual(meal.day_key, '2026-08-25', 'the stale date was refused');
+    assert.equal(meal.day_key, today);
+    assert.doesNotMatch(lastMessage().text, /נרשם לתאריך/);
+  });
+
+  test('a date the user DID ask for is honoured', async () => {
+    await post(handler, textUpdate('אכלתי מק דאבל אתמול'));
+    const yday = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+    scriptClaude(backdatedMeal(yday), say(''));
+    await post(handler, callbackUpdate('ai'));
+
+    assert.equal(db.rows('meals')[0].day_key, yday);
+    assert.match(lastMessage().text, /נרשם לתאריך/);
+  });
+
+  test('the lite prompt forbids reusing numbers from the conversation', async () => {
+    await post(handler, textUpdate('משהו שלא נפרסר בכלל בשום צורה'));
+    scriptClaude(say('שאלה'));
+    await post(handler, callbackUpdate('ai'));
+
+    const sys = claudeCalls[0].system;
+    assert.match(sys, /היסטוריית השיחה אינה מקור לערכים/);
+    assert.match(sys, /תאריך: תמיד היום ועכשיו/);
+  });
+});
+
 describe('never silent', () => {
   test('a crash anywhere in processing still answers the user', async () => {
     // text as a non-string blows up early in onMessage — any unexpected
