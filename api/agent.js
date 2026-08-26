@@ -225,6 +225,7 @@ function actionDetailLines(a) {
     const s = a.saved || {};
     const lines = [];
     if (s.product) lines.push(`מוצר: ${esc(s.product)}`);
+    if (s.aliases?.length) lines.push(`שמות נוספים: ${esc(s.aliases.join(', '))}`);
     if (s.serving_grams) lines.push(`מנה: ${s.serving_grams} גרם`);
     if (s.kcal_per_100g != null) {
       let m = `ל-100 גרם: ${s.kcal_per_100g} קק"ל`;
@@ -986,6 +987,7 @@ async function cmdFoods(chatId) {
     let s = `• <b>${esc(f.alias)}</b>`;
     if (f.serving_grams) s += ` · ${f.serving_grams} ג`;
     if (f.kcal_per_100g != null) s += ` · ${f.kcal_per_100g} קק"ל/100`;
+    if (f.aliases?.length) s += `\n   <i>גם: ${esc(f.aliases.join(' · '))}</i>`;
     return s;
   };
 
@@ -1385,6 +1387,7 @@ async function onCallback(cb) {
     const grams = Number(gramsS) > 0 ? Number(gramsS) : servingG || 100;
     await execRememberFood(chatId, {
       alias: q, product: pick.name,
+      aliases: [pick.name], // the official name should match too, next time
       kcal_per_100g: pick.per100g.kcal,
       ...(pick.per100g.protein != null ? { protein_per_100g: pick.per100g.protein } : {}),
       ...(pick.per100g.carbs != null ? { carbs_per_100g: pick.per100g.carbs } : {}),

@@ -2,7 +2,7 @@ import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  CHAT, claudeCalls, scriptClaude, say, useTool,
+  CHAT, claudeCalls, scriptClaude, say, useTool, useTools,
   post, textUpdate, photoUpdate, callbackUpdate, resetAll, db, lastMessage,
   seedGoals, seedMeal, setOffProduct, setCkan,
 } from './harness.js';
@@ -302,6 +302,68 @@ describe('code-first: live-bug regressions (2026-08-26)', () => {
 
     assert.match(lastMessage().text, /<b>הכמות<\/b>/);
     assert.doesNotMatch(lastMessage().text, /\*\*/);
+  });
+});
+
+describe('learning: the AI teaches the parser', () => {
+  test('a food the AI logs is remembered with alternative names, then parsed free', async () => {
+    await post(handler, textUpdate('מק דאבל'));
+    assert.equal(claudeCalls.length, 0, 'unknown food does not call the AI on its own');
+
+    scriptClaude(
+      useTools([
+        {
+          name: 'log_meal',
+          input: {
+            items: [{ name: 'מק דאבל', grams: 150, calories: 400, protein: 22, carbs: 33, fat: 20, source_type: 'label', quantity_source: 'default' }],
+            confidence: 'high',
+          },
+        },
+        {
+          name: 'remember_food',
+          input: {
+            alias: 'מק דאבל', product: "McDonald's Mc Double",
+            aliases: ['מקדונלדס דאבל', 'דאבל', 'מק-דאבל'],
+            serving_grams: 150, kcal_per_100g: 267, protein_per_100g: 14.7, carbs_per_100g: 22, fat_per_100g: 13.3,
+          },
+        },
+      ]),
+      say('')
+    );
+    await post(handler, callbackUpdate('ai'));
+
+    const learned = db.rows('my_foods').find((f) => f.alias === 'מק דאבל');
+    assert.ok(learned, 'saved to the dictionary');
+    assert.deepEqual(learned.aliases, ['מקדונלדס דאבל', 'דאבל', 'מק-דאבל']);
+
+    // the whole point: the next mention — by ANY name — costs nothing
+    const before = claudeCalls.length;
+    await post(handler, textUpdate('דאבל'));
+    assert.equal(claudeCalls.length, before, 'no AI call the second time');
+    const meal = db.rows('meals').at(-1);
+    assert.equal(meal.items[0].name, 'מק דאבל');
+    assert.equal(meal.items[0].source_type, 'personal_food');
+    const u = db.rows('agent_usage').at(-1);
+    assert.equal(u.route, 'parser', 'handled for free');
+  });
+
+  test('later alternative names accumulate instead of replacing', async () => {
+    seedFood({ alias: 'שייק', aliases: ['שייק חלבון'] });
+    scriptClaude(useTool('remember_food', { alias: 'שייק', aliases: ['מילקשייק', 'שייק חלבון'] }), say(''));
+    await post(handler, textUpdate('משהו שלא נפרסר בכלל בשום צורה'));
+    await post(handler, callbackUpdate('ai'));
+
+    const f = db.rows('my_foods').find((x) => x.alias === 'שייק');
+    assert.deepEqual(f.aliases, ['שייק חלבון', 'מילקשייק'], 'merged, deduped, old kept');
+  });
+
+  test('an alternative name equal to the alias itself is dropped', async () => {
+    scriptClaude(useTool('remember_food', { alias: 'טונה', aliases: ['טונה', 'קופסת טונה'] }), say(''));
+    await post(handler, textUpdate('משהו שלא נפרסר בכלל בשום צורה'));
+    await post(handler, callbackUpdate('ai'));
+
+    const f = db.rows('my_foods').find((x) => x.alias === 'טונה');
+    assert.deepEqual(f.aliases, ['קופסת טונה']);
   });
 });
 

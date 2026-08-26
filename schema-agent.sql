@@ -147,3 +147,9 @@ create table agent_usage (
 create index agent_usage_chat_ts on agent_usage (chat_id, ts desc);
 
 alter table agent_usage enable row level security;
+
+-- ---------- alternative names ----------
+-- One food, many ways the user says it ("מק דאבל" / "מקדונלדס דאבל" / "דאבל").
+-- The parser matches on alias OR any entry here, so a food learned once is
+-- recognized however it is phrased next time — no LLM call.
+alter table my_foods add column if not exists aliases text[];

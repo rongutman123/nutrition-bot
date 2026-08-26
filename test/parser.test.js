@@ -78,6 +78,21 @@ describe('the meal parser', () => {
     assert.equal(r.type, 'unknown_food');
   });
 
+  test('a food is found by any of its learned alternative names', () => {
+    const foods = [{
+      alias: 'מק דאבל', aliases: ['מקדונלדס דאבל', 'דאבל', 'המבורגר מק דאבל'],
+      product: 'McDonald\'s Mc Double', serving_grams: 150, kcal_per_100g: 250,
+      protein_per_100g: 15, carbs_per_100g: 20, fat_per_100g: 12,
+    }];
+    for (const name of ['מק דאבל', 'מקדונלדס דאבל', 'דאבל', 'המבורגר מק דאבל']) {
+      assert.ok(findFood(name, foods), `should match "${name}"`);
+    }
+    const r = parseMealText('2 דאבל', { foods });
+    assert.equal(r.type, 'meal');
+    assert.equal(r.items[0].grams, 300);
+    assert.equal(r.items[0].name, 'מק דאבל', 'logged under the canonical name');
+  });
+
   test('questions are not meals', () => {
     assert.equal(parseMealText('כמה חלבון אכלתי היום?', ctx).type, 'no_parse');
     assert.equal(parseMealText('מה אכלתי אתמול', ctx).type, 'no_parse');
