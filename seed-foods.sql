@@ -94,7 +94,6 @@ on conflict (chat_id, alias) do update set
 
 update my_foods m set package = v.package, updated_at = now()
 from (values
-  ('מק דאבל', '{"grams":140,"kcal":415,"protein":22,"carbs":34,"fat":21,"unit":"מנה"}'::jsonb),
   ('מעדן פרו חלבון תות', '{"grams":200,"kcal":130,"protein":20,"carbs":11.2,"fat":0,"unit":"גביע"}'::jsonb),
   ('קוטג''', '{"grams":300,"kcal":363,"protein":29.1,"carbs":11.1,"fat":15,"unit":"גביע"}'::jsonb),
   ('משקה חלבון קפה', '{"grams":350,"kcal":143,"protein":25,"carbs":10,"fat":0.4,"unit":"בקבוק"}'::jsonb),
