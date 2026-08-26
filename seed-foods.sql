@@ -28,7 +28,7 @@ select c.chat_id, v.* from c, (values
   ('שניצל בתנור', ARRAY['שניצל אפוי']::text[], 'שניצל עוף בתנור', 600, 170, 15, 7, 9, null::jsonb, null),  -- 1x ביומן · הערכה · 2026-08-20
   ('קוטג''', ARRAY['קוטג','קוטג׳','גביע קוטג']::text[], 'קוטג'' תנובה 5%', 300, 121, 9.7, 3.7, 5, '{"שלם":300,"חצי":150,"גביע":300}'::jsonb, null),  -- לימדת אותו ישירות · מנה 300 גרם לפי התיקון שלך
   ('מעדן פרו חלבון תות', ARRAY['מעדן פרו','פרו תות','מעדן חלבון תות']::text[], 'מעדן פרו חלבון תות', 200, 65, 10, 5.6, 0, null::jsonb, null),  -- נקרא מתווית הגביע
-  ('משקה קפה מולר', ARRAY['מולר קפה חלבון','muller קפה']::text[], 'müller משקה קפה עם חלבוני חלב', 350, 45, 7.2, 4.2, 0, null::jsonb, '7290114313278')  -- ברקוד שסרקת ב-26.08
+  ('משקה קפה מולר', ARRAY['מולר קפה חלבון','muller קפה']::text[], 'müller משקה קפה עם חלבוני חלב', 350, 45, 7.2, 4.2, 0, null::jsonb, null)  -- הברקוד כבר שמור על הרשומה שהבוט יצר בסריקה
 ) as v(alias, aliases, product, serving_grams, kcal_per_100g, protein_per_100g, carbs_per_100g, fat_per_100g, variants, barcode)
 on conflict (chat_id, alias) do update set
   aliases          = array(select distinct unnest(coalesce(my_foods.aliases, '{}'::text[]) || excluded.aliases)),
