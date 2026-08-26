@@ -137,7 +137,7 @@ describe('log_meal', () => {
   test('two tool calls in one turn produce two undo buttons with distinct ids', async () => {
     scriptClaude(useTools([
       { name: 'log_meal', input: { items: [ITEM()], confidence: 'medium' } },
-      { name: 'remember_food', input: { alias: 'לחמניה', serving_grams: 90 } },
+      { name: 'remember_food', input: { alias: 'לחמניה', serving_grams: 90, kcal_per_100g: 270 } },
     ]), say(''));
     await post(handler, textUpdate('חזה עוף, וזכור שלחמניה 90 גרם'));
 
@@ -336,7 +336,7 @@ describe('remember_food', () => {
   });
 
   test('a dictionary-only action shows no day summary', async () => {
-    scriptClaude(useTool('remember_food', { alias: 'טונה', serving_grams: 100 }), say(''));
+    scriptClaude(useTool('remember_food', { alias: 'טונה', serving_grams: 100, kcal_per_100g: 175 }), say(''));
     await post(handler, textUpdate('זכור טונה'));
 
     assert.doesNotMatch(lastText(), /נותרו/);

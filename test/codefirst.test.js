@@ -385,7 +385,7 @@ describe('learning: the AI teaches the parser', () => {
   });
 
   test('an alternative name equal to the alias itself is dropped', async () => {
-    scriptClaude(useTool('remember_food', { alias: 'טונה', aliases: ['טונה', 'קופסת טונה'] }), say(''));
+    scriptClaude(useTool('remember_food', { alias: 'טונה', aliases: ['טונה', 'קופסת טונה'], kcal_per_100g: 175 }), say(''));
     await post(handler, textUpdate('משהו שלא נפרסר בכלל בשום צורה'));
     await post(handler, callbackUpdate('ai'));
 
@@ -500,6 +500,67 @@ describe('quantity button, backdating, weekly view', () => {
     assert.match(t, /לא נרשם/, 'days with nothing logged are shown, not hidden');
     assert.match(t, /ממוצע/);
     assert.equal(claudeCalls.length, 0);
+  });
+});
+
+describe('learning must not fail silently', () => {
+  test('a nested per_100g object still lands in the dictionary', async () => {
+    // live: the model sent per_100g:{...} instead of the flat fields, and the
+    // entry was saved with a name and no calories — useless to the parser
+    await post(handler, textUpdate('משהו שלא נפרסר בכלל בשום צורה'));
+    scriptClaude(
+      useTools([
+        { name: 'log_meal', input: { items: [{ name: 'פילה דג בסה', grams: 450, calories: 495, protein: 72, carbs: 0, fat: 20.3, source_type: 'ai_estimate', quantity_source: 'user_explicit' }], confidence: 'medium' } },
+        { name: 'remember_food', input: { alias: 'פילה דג באסה בתנור', aliases: ['דג בסה', 'פילה בסה'], serving_grams: 450, per_100g: { calories: 110, protein: 16, carbs: 0, fat: 4.5 } } },
+      ]),
+      say('')
+    );
+    await post(handler, callbackUpdate('ai'));
+
+    const f = db.rows('my_foods').find((x) => x.alias === 'פילה דג באסה בתנור');
+    assert.equal(f.kcal_per_100g, 110, 'nested values were mapped, not dropped');
+    assert.equal(f.protein_per_100g, 16);
+
+    // and the whole point: the next mention is free
+    const before = claudeCalls.length;
+    await post(handler, textUpdate('200 גרם דג בסה'));
+    assert.equal(claudeCalls.length, before, 'no AI call');
+    assert.equal(Math.round(db.rows('meals').at(-1).totals.calories), 220);
+  });
+
+  test('an entry with no energy value is refused, not stored', async () => {
+    await post(handler, textUpdate('משהו שלא נפרסר בכלל בשום צורה'));
+    scriptClaude(useTool('remember_food', { alias: 'מאכל ריק', serving_grams: 100 }), say('בסדר'));
+    await post(handler, callbackUpdate('ai'));
+
+    assert.equal(db.rows('my_foods').find((x) => x.alias === 'מאכל ריק'), undefined);
+    const block = claudeCalls.at(-1).messages.at(-1).content[0];
+    assert.equal(block.is_error, true, 'the model is told to retry with values');
+  });
+
+  test('metadata-only updates (barcode, aliases) stay allowed', async () => {
+    seedFood({ alias: 'בננה' });
+    await post(handler, textUpdate('משהו שלא נפרסר בכלל בשום צורה'));
+    scriptClaude(useTool('remember_food', { alias: 'בננה', aliases: ['בננות'] }), say(''));
+    await post(handler, callbackUpdate('ai'));
+
+    const f = db.rows('my_foods').find((x) => x.alias === 'בננה');
+    assert.deepEqual(f.aliases, ['בננות']);
+    assert.equal(f.kcal_per_100g, 89, 'existing values untouched');
+  });
+
+  test('a long dish name with a weight reaches the database, not "לא זיהיתי"', async () => {
+    setCkan({
+      foods: [{ Code: 5, smlmitzrach: 5, shmmitzrach: 'דג בסה אפוי', food_energy: 110, protein: 16, carbohydrates: 0, total_fat: 4.5 }],
+      measures: {}, units: {},
+    });
+    await post(handler, textUpdate('פילה דג באסה בתנור - 450 גרם'));
+
+    assert.equal(claudeCalls.length, 0);
+    const t = lastMessage().text;
+    assert.doesNotMatch(t, /לא זיהיתי/);
+    assert.match(t, /פילה דג באסה בתנור/, 'the trailing dash is cleaned off the name');
+    assert.ok(lastMessage().reply_markup.inline_keyboard.flat().some((b) => b.callback_data.startsWith('tz:')));
   });
 });
 
